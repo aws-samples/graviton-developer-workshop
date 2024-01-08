@@ -1,0 +1,30 @@
+apiVersion: karpenter.sh/v1beta1
+kind: NodePool
+metadata:
+  name: arm-nodepool
+spec:
+  template:
+    spec:
+      nodeClassRef:
+        name: default
+      requirements:
+        - key: "kubernetes.io/arch"
+          operator: In
+          values: [ "arm64"]
+        - key: capacity-spread
+          operator: In
+          values:
+          - "2"
+        - key: "karpenter.k8s.aws/instance-category"
+          operator: In
+          values: ["c", "m", "r"]
+        - key: "karpenter.k8s.aws/instance-hypervisor"
+          operator: In
+          values: ["nitro"]
+        - key: "karpenter.k8s.aws/instance-generation"
+          operator: Gt
+          values: ["2"]
+  disruption:
+    consolidationPolicy: WhenEmpty
+    consolidateAfter: 30s
+    expireAfter: 360h

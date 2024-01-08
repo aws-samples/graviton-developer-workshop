@@ -1,11 +1,14 @@
-## My Project
+## Graviton Developer Workshop
 
-TODO: Fill this README out!
+This project contains the code for use with Graviton Developer Workshop located at . AWS Graviton processors are designed by AWS to deliver the best price performance for your cloud workloads running in Amazon EC2. The intent of this workshop is to educate users about the use of Graviton processor with AWS services and architectures. These labs show how to run modern containerized workloads on Graviton.
 
-Be sure to:
+## Content
 
-* Change the title in this README
-* Edit your repository description on GitHub
+In these labs you will learn the following:
+
+    - How to build multi-architecture container images using native builds and Docker buildx
+    - How to run EKS with Karpenter and amd64 and introduce arm64 as part of the fleet
+    - Create a pipeline to build multi-architecture container images with Jenkins
 
 ## Security
 

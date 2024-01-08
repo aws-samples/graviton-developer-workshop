@@ -1,6 +1,6 @@
 ## Graviton Developer Workshop
 
-This project contains the code for use with Graviton Developer Workshop located at . AWS Graviton processors are designed by AWS to deliver the best price performance for your cloud workloads running in Amazon EC2. The intent of this workshop is to educate users about the use of Graviton processor with AWS services and architectures. These labs show how to run modern containerized workloads on Graviton.
+This project contains the code for use with Graviton Developer Workshop located at https://workshops.aws/card/Graviton%20Developer%20Workshop. AWS Graviton processors are designed by AWS to deliver the best price performance for your cloud workloads running in Amazon EC2. The intent of this workshop is to educate users about the use of Graviton processor with AWS services and architectures. These labs show how to run modern containerized workloads on Graviton.
 
 ## Content
 

@@ -7,7 +7,8 @@ This project contains the code for use with [Graviton Developer Workshop](https:
 In these labs you will learn the following:
 
 * How to build multi-architecture container images using native builds and Docker buildx
-* How to run EKS with Karpenter and amd64 and introduce arm64 as part of the fleet
+* How to run EKS with Karpenter and amd64 and introduce Graviton as part of the fleet
+* How to run ECS with amd64 capacity provider and introduce Graviton as part of the fleet
 * Create a pipeline to build multi-architecture container images with Jenkins
 
 ## Security

@@ -5,12 +5,14 @@ metadata:
   name: default
 spec:
   amiFamily: AL2
-  role: karpenter-ex-karpenter
-  subnetSelectorTerms:
+  subnetSelectorTerms:          
     - tags:
-        karpenter.sh/discovery: ex-karpenter
+        karpenter.sh/discovery: "eksworkshop"
   securityGroupSelectorTerms:
     - tags:
-        karpenter.sh/discovery: ex-karpenter
+        karpenter.sh/discovery: "eksworkshop"
+  role: "Karpenter-eksworkshop"
   tags:
-    karpenter.sh/discovery: ex-karpenter
+    Name: karpenter.sh/nodepool/default
+    NodeType: "karpenter-workshop"
+    IntentLabel: "apps"

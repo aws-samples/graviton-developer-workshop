@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webbooks-multiarch
+spec:
+  replicas: 10
+  selector:
+    matchLabels:
+      app: webbooks-multiarch
+  template:
+    metadata:
+      labels:
+        app: webbooks-multiarch
+    spec:
+      nodeSelector:
+        intent: multiarch
+      containers:
+        - name: webbooks-multiarch
+          image: public.ecr.aws/j4m3t0a6/webbook:latest
+          resources:
+            requests:
+              cpu: 1
+              memory: 512M
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: capacity-spread
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: webbooks-multiarch

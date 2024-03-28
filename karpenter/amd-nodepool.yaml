@@ -1,9 +1,12 @@
 apiVersion: karpenter.sh/v1beta1
 kind: NodePool
 metadata:
-  name: amd-nodepool
+  name: x86
 spec:
   template:
+    metadata:
+      labels:
+        intent: multiarch
     spec:
       nodeClassRef:
         name: default
@@ -11,20 +14,25 @@ spec:
         - key: "kubernetes.io/arch"
           operator: In
           values: [ "amd64"]
-        - key: capacity-spread
+        - key: karpenter.sh/capacity-type
           operator: In
-          values:
-          - "1"
+          values: ["spot", "on-demand"]
         - key: "karpenter.k8s.aws/instance-category"
           operator: In
           values: ["c", "m", "r"]
-        - key: "karpenter.k8s.aws/instance-hypervisor"
-          operator: In
-          values: ["nitro"]
         - key: "karpenter.k8s.aws/instance-generation"
           operator: Gt
           values: ["2"]
+        - key: capacity-spread
+          operator: In
+          values:
+          - "2"
+          - "3"
+          - "4"
+          - "5"
+  limits:
+    cpu: 1000
+    memory: 1000Gi
   disruption:
-    consolidationPolicy: WhenEmpty
-    consolidateAfter: 30s
-    expireAfter: 360h
+    consolidationPolicy: WhenUnderutilized
+    expireAfter: 720h

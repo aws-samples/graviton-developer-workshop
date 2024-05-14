@@ -34,20 +34,20 @@ locals {
 
 module "ecs_cluster" {
   source  = "terraform-aws-modules/ecs/aws//modules/cluster"
-  version = "~> 5.6"
+  version = "~> 5.11"
 
   cluster_name = local.name
 
   # Capacity provider - autoscaling groups
   default_capacity_provider_use_fargate = false
   
-  
+
   autoscaling_capacity_providers = {
     "intel_capacity_provider" = {
       auto_scaling_group_arn         = module.intel_autoscaling.autoscaling_group_arn
       managed_termination_protection = "DISABLED"
-      
-       managed_scaling = {
+
+      managed_scaling = {
         maximum_scaling_step_size = 5
         minimum_scaling_step_size = 1
         status                    = "ENABLED"
@@ -61,8 +61,8 @@ module "ecs_cluster" {
     "arm_capacity_provider" = {
       auto_scaling_group_arn         = module.arm_autoscaling.autoscaling_group_arn
       managed_termination_protection = "DISABLED"
-      
-       managed_scaling = {
+
+      managed_scaling = {
         maximum_scaling_step_size = 5
         minimum_scaling_step_size = 1
         status                    = "ENABLED"
@@ -74,7 +74,7 @@ module "ecs_cluster" {
       }
     }
   }
-  
+
   tags = local.tags
 }
 
@@ -85,7 +85,7 @@ module "ecs_cluster" {
 
 module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
-  version = "~> 5.0"
+  version = "~> 5.8"
 
   name = local.name
   cidr = local.vpc_cidr
@@ -119,7 +119,7 @@ data "aws_ssm_parameter" "ecs_optimized_ami_arm" {
 
 module "intel_autoscaling" {
   source  = "terraform-aws-modules/autoscaling/aws"
-  version = "~> 7.2"
+  version = "~> 7.4"
 
   name = local.intel_asg_name
 
@@ -147,7 +147,7 @@ module "intel_autoscaling" {
   autoscaling_group_tags = {
     AmazonECSManaged = true
   }
-  
+
   # Required for  managed_termination_protection = "ENABLED"
   protect_from_scale_in = false
 
@@ -156,7 +156,7 @@ module "intel_autoscaling" {
 
 module "arm_autoscaling" {
   source  = "terraform-aws-modules/autoscaling/aws"
-  version = "~> 7.2"
+  version = "~> 7.4"
 
   name = local.arm_asg_name
 
@@ -184,7 +184,7 @@ module "arm_autoscaling" {
   autoscaling_group_tags = {
     AmazonECSManaged = true
   }
-  
+
   # Required for  managed_termination_protection = "ENABLED"
   protect_from_scale_in = false
 
@@ -193,7 +193,7 @@ module "arm_autoscaling" {
 
 module "autoscaling_sg" {
   source  = "terraform-aws-modules/security-group/aws"
-  version = "~> 5.0"
+  version = "~> 5.1"
 
   name        = local.name
   description = "Autoscaling group security group"

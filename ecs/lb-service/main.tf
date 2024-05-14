@@ -21,12 +21,12 @@ locals {
 
 module "ecs_service" {
   source  = "terraform-aws-modules/ecs/aws//modules/service"
-  version = "~> 5.6"
+  version = "~> 5.11"
 
   name          = local.name
   desired_count = 1
   cluster_arn   = data.aws_ecs_cluster.core_infra.arn
-  
+
   cpu = 200
   memory = 200
   # Task Definition
@@ -41,7 +41,7 @@ module "ecs_service" {
       capacity_provider = "intel_capacity_provider" # needs to match name of capacity provider
       weight            = 1
     }
-    
+
   }
 
   container_definitions = {
@@ -57,10 +57,10 @@ module "ecs_service" {
           containerPort = local.container_port
         }
       ]
-      
+
     }
   }
-  
+
   runtime_platform = {}
 
   load_balancer = {
@@ -95,7 +95,7 @@ module "ecs_service" {
 
 module "alb" {
   source  = "terraform-aws-modules/alb/aws"
-  version = "~> 9.0"
+  version = "~> 9.9"
 
   name = local.name
 

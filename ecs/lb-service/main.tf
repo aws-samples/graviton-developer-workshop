@@ -6,7 +6,7 @@ locals {
   name   = "webbook"
   region = var.AWS_REGION
 
-  container_port = 8080# Container port is specific to this app example
+  container_port = 8080 # Container port is specific to this app example
   container_name = "webbook"
 
   tags = {
@@ -27,7 +27,7 @@ module "ecs_service" {
   desired_count = 1
   cluster_arn   = data.aws_ecs_cluster.core_infra.arn
 
-  cpu = 200
+  cpu    = 200
   memory = 200
   # Task Definition
   enable_execute_command   = true
@@ -48,7 +48,8 @@ module "ecs_service" {
     (local.container_name) = {
       image                    = "public.ecr.aws/j4m3t0a6/webbook:latest"
       readonly_root_filesystem = false
-      cpu = 200
+
+      cpu    = 200
       memory = 200
 
       port_mappings = [

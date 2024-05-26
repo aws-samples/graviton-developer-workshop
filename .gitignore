@@ -34,3 +34,6 @@ override.tf.json
 terraform.rc
 
 .DS_Store
+
+# NOTE Ig nore terraform lock file since this project is meant for one-off demo purpose, not for continual development
+.terraform.lock.hcl

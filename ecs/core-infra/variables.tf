@@ -1,4 +1,4 @@
 variable "AWS_REGION" {
-    type        = string
-    description = "aws region"
+  type        = string
+  description = "aws region"
 }

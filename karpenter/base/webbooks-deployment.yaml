@@ -1,0 +1,24 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webbooks
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: webbooks
+  template:
+    metadata:
+      labels:
+        app: webbooks
+    spec:
+      nodeSelector:
+        intent: apps
+        kubernetes.io/arch: amd64
+      containers:
+        - name: webbooks
+          image: public.ecr.aws/j4m3t0a6/webbook:latest
+          resources:
+            requests:
+              cpu: 1
+              memory: 512M

@@ -1,0 +1,10 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webbooks
+spec:
+  replicas: 3
+  template:
+    spec:
+      nodeSelector:
+        kubernetes.io/arch: arm64

@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webbooks
+spec:
+  replicas: 10
+  template:
+    metadata:
+      labels:
+        app: webbooks
+    spec:
+      nodeSelector:
+        intent: multiarch
+        kubernetes.io/arch: null
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: capacity-spread
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: webbooks

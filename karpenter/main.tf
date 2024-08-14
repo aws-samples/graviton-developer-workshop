@@ -1,5 +1,5 @@
 provider "aws" {
-  region  = local.region
+  region = local.region
 }
 
 # Required for public ECR where Karpenter artifacts are hosted
@@ -154,7 +154,7 @@ module "eks_blueprints_addons" {
     aws-ebs-csi-driver = {
       service_account_role_arn = module.ebs_csi_driver_irsa.iam_role_arn
     }
-    
+
   }
 
   enable_karpenter = true
@@ -166,7 +166,7 @@ module "eks_blueprints_addons" {
     # Use static name so that it matches what is defined in `karpenter.yaml` example manifest
     iam_role_use_name_prefix = false
   }
-  
+
   enable_aws_load_balancer_controller = true
   aws_load_balancer_controller = {
     set = [

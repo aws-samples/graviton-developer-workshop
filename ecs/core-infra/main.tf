@@ -5,10 +5,10 @@ provider "aws" {
 data "aws_availability_zones" "available" {}
 
 locals {
-  name   = basename(path.cwd)
+  name           = basename(path.cwd)
   intel_asg_name = "intel-asg"
-  arm_asg_name = "arm-asg"
-  region = var.AWS_REGION
+  arm_asg_name   = "arm-asg"
+  region         = var.AWS_REGION
 
   vpc_cidr = "10.0.0.0/16"
   azs      = slice(data.aws_availability_zones.available.names, 0, 3)
@@ -40,7 +40,7 @@ module "ecs_cluster" {
 
   # Capacity provider - autoscaling groups
   default_capacity_provider_use_fargate = false
-  
+
 
   autoscaling_capacity_providers = {
     "intel_capacity_provider" = {

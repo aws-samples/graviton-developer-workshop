@@ -2,10 +2,11 @@ provider "aws" {
   region = local.region
 }
 
-# Required for public ECR where Karpenter artifacts are hosted
+# This provider is required for ECR to autheticate with public repos. Please note ECR authetication requires us-east-1 as region hence its hardcoded below.
+# If your region is same as us-east-1 then you can just use one aws provider
 provider "aws" {
+  alias  = "ecr"
   region = "us-east-1"
-  alias  = "virginia"
 }
 
 provider "kubernetes" {
@@ -35,10 +36,16 @@ provider "helm" {
 }
 
 data "aws_ecrpublic_authorization_token" "token" {
-  provider = aws.virginia
+  provider = aws.ecr
 }
 
-data "aws_availability_zones" "available" {}
+data "aws_availability_zones" "available" {
+  # Do not include local zones
+  filter {
+    name   = "opt-in-status"
+    values = ["opt-in-not-required"]
+  }
+}
 
 locals {
   name   = "eksworkshop"
@@ -59,10 +66,10 @@ locals {
 
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
-  version = "~> 19.18"
+  version = "~> 20.11"
 
   cluster_name                   = local.name
-  cluster_version                = "1.28"
+  cluster_version                = "1.30"
   cluster_endpoint_public_access = true
 
   vpc_id     = module.vpc.vpc_id
@@ -72,18 +79,7 @@ module "eks" {
   create_cluster_security_group = false
   create_node_security_group    = false
 
-  manage_aws_auth_configmap = true
-  aws_auth_roles = [
-    # We need to add in the Karpenter node IAM role for nodes launched by Karpenter
-    {
-      rolearn  = module.eks_blueprints_addons.karpenter.node_iam_role_arn
-      username = "system:node:{{EC2PrivateDNSName}}"
-      groups = [
-        "system:bootstrappers",
-        "system:nodes",
-      ]
-    },
-  ]
+  enable_cluster_creator_admin_permissions = true
 
   fargate_profiles = {
     karpenter = {
@@ -113,7 +109,7 @@ module "eks" {
 
 module "eks_blueprints_addons" {
   source  = "aws-ia/eks-blueprints-addons/aws"
-  version = "~> 1.11"
+  version = "~> 1.16"
 
   cluster_name      = module.eks.cluster_name
   cluster_endpoint  = module.eks.cluster_endpoint
@@ -136,13 +132,13 @@ module "eks_blueprints_addons" {
         resources = {
           limits = {
             cpu = "0.25"
-            # We are targetting the smallest Task size of 512Mb, so we subtract 256Mb from the
+            # We are targeting the smallest Task size of 512Mb, so we subtract 256Mb from the
             # request/limit to ensure we can fit within that task
             memory = "256M"
           }
           requests = {
             cpu = "0.25"
-            # We are targetting the smallest Task size of 512Mb, so we subtract 256Mb from the
+            # We are targeting the smallest Task size of 512Mb, so we subtract 256Mb from the
             # request/limit to ensure we can fit within that task
             memory = "256M"
           }
@@ -154,14 +150,16 @@ module "eks_blueprints_addons" {
     aws-ebs-csi-driver = {
       service_account_role_arn = module.ebs_csi_driver_irsa.iam_role_arn
     }
-
   }
 
   enable_karpenter = true
+
   karpenter = {
+    chart_version       = "1.0.0"
     repository_username = data.aws_ecrpublic_authorization_token.token.user_name
     repository_password = data.aws_ecrpublic_authorization_token.token.password
   }
+
   karpenter_node = {
     # Use static name so that it matches what is defined in `karpenter.yaml` example manifest
     iam_role_use_name_prefix = false
@@ -182,6 +180,13 @@ module "eks_blueprints_addons" {
   }
 
   tags = local.tags
+}
+
+resource "aws_eks_access_entry" "karpenter_node_access_entry" {
+  cluster_name      = module.eks.cluster_name
+  principal_arn     = module.eks_blueprints_addons.karpenter.node_iam_role_arn
+  kubernetes_groups = []
+  type              = "EC2_LINUX"
 }
 
 ################################################################################

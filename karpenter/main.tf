@@ -156,8 +156,6 @@ module "eks_blueprints_addons" {
 
   karpenter = {
     chart_version       = "1.0.0"
-    repository_username = data.aws_ecrpublic_authorization_token.token.user_name
-    repository_password = data.aws_ecrpublic_authorization_token.token.password
   }
 
   karpenter_node = {
@@ -188,6 +186,7 @@ resource "aws_eks_access_entry" "karpenter_node_access_entry" {
   kubernetes_groups = []
   type              = "EC2_LINUX"
 }
+
 
 ################################################################################
 # Supporting Resources

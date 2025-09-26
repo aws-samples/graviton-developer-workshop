@@ -10,6 +10,7 @@ In these labs you will learn the following:
 * How to run EKS with Karpenter and amd64 and introduce Graviton as part of the fleet
 * How to run ECS with amd64 capacity provider and introduce Graviton as part of the fleet
 * Create a pipeline to build multi-architecture container images with Jenkins
+* Running an Agentic AI on EKS Auto Mode
 
 ## Security
 

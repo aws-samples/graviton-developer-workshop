@@ -1,0 +1,68 @@
+# kubectl port-forward service/gptoss-vllm-gpu 8000:8000
+# curl http://localhost:8000/v1/chat/completions -H "Content-Type: application/json" -d '{ "model": "openai/gpt-oss-20b", "messages": [{"role": "system", "content": "You are a helpful assistant."},{"role": "user", "content": "What is machine learning?"}],"max_tokens": 100 }'
+# curl http://localhost:8000/metrics |grep time_per_output_token_seconds_sum
+# curl http://localhost:8000/metrics |grep generation_tokens_total
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gptoss-vllm-gpu
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gptoss-vllm-gpu
+  template:
+    metadata:
+      labels:
+        app: gptoss-vllm-gpu
+    spec:
+      tolerations:
+      - key: "nvidia.com/gpu"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
+      nodeSelector:
+        node.kubernetes.io/instance-type: g5.12xlarge
+      containers:
+      - name: vllm
+        image:  vllm/vllm-openai:v0.10.2
+        args:
+          - "--model=openai/gpt-oss-20b"
+          - "--host=0.0.0.0"
+          - "--port=8000"
+          - "--trust-remote-code"
+          - "--max-model-len=2048"
+          - "--tensor-parallel-size=1"
+          - "--enable-auto-tool-choice"
+          - --tool-call-parser=openai
+        resources:
+          limits:
+            cpu: "30"
+            memory: "160Gi"
+            nvidia.com/gpu: "1"    # Request GPU
+          requests:
+            cpu: "30"
+            memory: "160Gi"
+            nvidia.com/gpu: "1"
+        ports:
+        - containerPort: 8000
+        env:
+        - name: VLLM_ATTENTION_BACKEND
+          value: "TRITON_ATTN_VLLM_V1"
+        - name: HUGGING_FACE_HUB_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: hf-token
+              key: token
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gptoss-vllm-gpu
+spec:
+  selector:
+    app: gptoss-vllm-gpu
+  ports:
+  - port: 8000
+    targetPort: 8000
+  type: ClusterIP

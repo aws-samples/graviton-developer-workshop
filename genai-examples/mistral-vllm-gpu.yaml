@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mistral-vllm-gpu
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mistral-vllm-gpu
+  template:
+    metadata:
+      labels:
+        app: mistral-vllm-gpu
+    spec:
+      tolerations:
+      - key: "nvidia.com/gpu"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
+      nodeSelector:
+        node.kubernetes.io/instance-type: g6.xlarge
+      containers:
+      - name: vllm
+        image:  vllm/vllm-openai:latest
+        args:
+          - "--model=mistralai/Mistral-7B-Instruct-v0.2"
+          - "--host=0.0.0.0"
+          - "--port=8000"
+          - --trust-remote-code
+          - "--max-model-len"
+          - "4096"
+          - --dtype=float16
+        resources:
+          limits:
+            nvidia.com/gpu: "1"    # Request GPU
+          requests:
+            nvidia.com/gpu: "1"
+        ports:
+        - containerPort: 8000
+        env:
+        - name: HUGGING_FACE_HUB_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: hf-token
+              key: token
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mistral-vllm-gpu
+spec:
+  selector:
+    app: mistral-vllm-gpu
+  ports:
+  - port: 8000
+    targetPort: 8000
+  type: ClusterIP

@@ -1,19 +1,16 @@
-# kubectl port-forward service/qwen-vllm-gpu 8000:8000
-# curl http://localhost:8000/metrics |grep time_per_output_token_seconds_sum
-# curl http://localhost:8000/metrics |grep generation_tokens_total
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: qwen-vllm-gpu
+  name: qwen-vllm-gpu-fsx
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: qwen-vllm-gpu
+      app: qwen-vllm-gpu-fsx
   template:
     metadata:
       labels:
-        app: qwen-vllm-gpu
+        app: qwen-vllm-gpu-fsx
     spec:
       tolerations:
       - key: "nvidia.com/gpu"
@@ -21,14 +18,14 @@ spec:
         value: "true"
         effect: "NoSchedule"
       nodeSelector:
-        node.kubernetes.io/instance-type: g4dn.xlarge
+        node.kubernetes.io/instance-type: g5.xlarge
+        topology.kubernetes.io/zone: us-east-1a  # same AZ as the pvc
       volumes:
       - name: fsx-storage
         persistentVolumeClaim:
           claimName: fsx-claim
       containers:
       - name: vllm
-        #image: public.ecr.aws/j4m3t0a6/vllm-arm
         image:  vllm/vllm-openai:latest
         args:
           - "--model=/models/Qwen3-4B"
@@ -37,17 +34,13 @@ spec:
           - --trust-remote-code
           - "--max-model-len"
           - "4096"
-          - --dtype=float16 #Bfloat16 is only supported on GPUs with compute capability of at least 8.0. Your Tesla T4 GPU has compute capability 7.5
+          - --dtype=float16
           - --enable-auto-tool-choice
           - --tool-call-parser=hermes
         resources:
           limits:
-            cpu: "3"
-            memory: "12Gi"
             nvidia.com/gpu: "1"    # Request GPU
           requests:
-            cpu: "3"
-            memory: "12Gi"
             nvidia.com/gpu: "1"
         ports:
         - containerPort: 8000
@@ -58,10 +51,10 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: qwen-vllm-gpu
+  name: qwen-vllm-gpu-fsx
 spec:
   selector:
-    app: qwen-vllm-gpu
+    app: qwen-vllm-gpu-fsx
   ports:
   - port: 8000
     targetPort: 8000

@@ -69,7 +69,7 @@ module "eks" {
   version = "~> 20.11"
 
   cluster_name                   = local.name
-  cluster_version                = "1.30"
+  cluster_version                = "1.31"
   cluster_endpoint_public_access = true
 
   vpc_id     = module.vpc.vpc_id
@@ -155,7 +155,7 @@ module "eks_blueprints_addons" {
   enable_karpenter = true
 
   karpenter = {
-    chart_version       = "1.0.0"
+    chart_version       = "1.1.0"
   }
 
   karpenter_node = {

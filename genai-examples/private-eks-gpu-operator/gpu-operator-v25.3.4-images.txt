@@ -1,0 +1,43 @@
+# GPU Operator v25.3.4 Container Images for Ubuntu
+
+# Core Operator
+nvcr.io/nvidia/gpu-operator:v25.3.4
+nvcr.io/nvidia/cuda:13.0.1-base-ubi9
+
+# Driver
+nvcr.io/nvidia/cloud-native/k8s-driver-manager:v0.8.1
+nvcr.io/nvidia/driver:580-6.8.0-1040-aws-ubuntu22.04
+
+# Container Toolkit
+nvcr.io/nvidia/k8s/container-toolkit:v1.17.8-ubuntu20.04
+
+# Device Plugin & GPU Feature Discovery
+nvcr.io/nvidia/k8s-device-plugin:v0.17.4
+
+# DCGM & Monitoring
+nvcr.io/nvidia/cloud-native/dcgm:4.3.1-1-ubuntu22.04
+nvcr.io/nvidia/k8s/dcgm-exporter:4.3.1-4.4.0-ubuntu22.04
+
+# MIG Manager
+nvcr.io/nvidia/cloud-native/k8s-mig-manager:v0.12.3-ubuntu20.04
+
+# Validator
+nvcr.io/nvidia/cloud-native/gpu-operator-validator:v25.3.4
+
+nvcr.io/nvidia/cloud-native/vgpu-device-manager:v0.4.0
+registry.k8s.io/nfd/node-feature-discovery:v0.17.3
+
+# Cuda Test
+nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0-ubuntu22.04
+nvcr.io/nvidia/cuda:13.0.2-base-ubuntu22.04
+
+# Optional Components (if enabled)
+#nvcr.io/nvidia/cloud-native/nvidia-fs:2.20.5
+#nvcr.io/nvidia/cloud-native/gdrdrv:v2.5.1
+#nvcr.io/nvidia/kubevirt-gpu-device-plugin:v1.4.0
+#nvcr.io/nvidia/cloud-native/k8s-cc-manager:v0.1.1
+#nvcr.io/nvidia/cloud-native/k8s-kata-manager:v0.2.3
+
+# Kata Runtime Artifacts (if kata enabled)
+#nvcr.io/nvidia/cloud-native/kata-gpu-artifacts:ubuntu22.04-535.54.03
+#nvcr.io/nvidia/cloud-native/kata-gpu-artifacts:ubuntu22.04-535.86.10-snp

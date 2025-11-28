@@ -70,6 +70,7 @@ kubectl get runtimeclass
 
 ```bash
 kubectl apply -f cuda-test.yaml
+```
 
 ```bash
 kubectl logs cuda-vectoradd

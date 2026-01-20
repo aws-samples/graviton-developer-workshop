@@ -44,7 +44,7 @@ Update the `values-v25.3.4.yaml` file with your ECR registry. The file has been 
 ## 4. Install GPU Operator
 
 ```bash
-helm install gpu-operator nvidia/gpu-operator \
+helm install gpu-operator gpu-operator-v25.3.4.tgz \
   -n gpu-operator \
   --create-namespace \
   -f values-v25.3.4.yaml

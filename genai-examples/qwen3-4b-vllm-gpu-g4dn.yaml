@@ -30,9 +30,8 @@ spec:
           - "--model=Qwen/Qwen3-4B"
           - "--host=0.0.0.0"
           - "--port=8000"
-          - --trust-remote-code
-          - "--max-model-len"
-          - "4096"
+          - "--max-model-len=4096"
+          - "--max-num-seqs=2"
           - --dtype=float16 #Bfloat16 is only supported on GPUs with compute capability of at least 8.0. Your Tesla T4 GPU has compute capability 7.5
           - --enable-auto-tool-choice
           - --tool-call-parser=hermes

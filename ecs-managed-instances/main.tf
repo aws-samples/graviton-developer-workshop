@@ -22,7 +22,7 @@ variable "region" {
 }
 
 variable "cluster_name" {
-  default = "graviton-ecs-cluster"
+  default = "my-ecs-cluster"
 }
 
 variable "service_name" {
@@ -283,9 +283,47 @@ resource "aws_ecs_capacity_provider" "graviton" {
   }
 }
 
+# ---------- Managed Instances Capacity Provider (x86_64) ----------
+
+resource "aws_ecs_capacity_provider" "amd64" {
+  name    = "${var.cluster_name}-amd64-cp"
+  cluster = aws_ecs_cluster.main.name
+
+  managed_instances_provider {
+    infrastructure_role_arn = aws_iam_role.ecs_infrastructure.arn
+
+    instance_launch_template {
+      ec2_instance_profile_arn = aws_iam_instance_profile.ecs_instance.arn
+      monitoring               = "BASIC"
+
+      network_configuration {
+        subnets         = aws_subnet.private[*].id
+        security_groups = [aws_security_group.ecs.id]
+      }
+
+      storage_configuration {
+        storage_size_gib = 30
+      }
+
+      instance_requirements {
+        vcpu_count {
+          min = 2
+          max = 8
+        }
+        memory_mib {
+          min = 4096
+          max = 16384
+        }
+        cpu_manufacturers    = ["intel", "amd"]
+        instance_generations = ["current"]
+      }
+    }
+  }
+}
+
 resource "aws_ecs_cluster_capacity_providers" "main" {
   cluster_name       = aws_ecs_cluster.main.name
-  capacity_providers = [aws_ecs_capacity_provider.graviton.name]
+  capacity_providers = [aws_ecs_capacity_provider.graviton.name, aws_ecs_capacity_provider.amd64.name]
 
   default_capacity_provider_strategy {
     capacity_provider = aws_ecs_capacity_provider.graviton.name
@@ -336,10 +374,11 @@ resource "aws_ecs_task_definition" "app" {
 # ---------- ECS Service ----------
 
 resource "aws_ecs_service" "app" {
-  name            = var.service_name
-  cluster         = aws_ecs_cluster.main.id
-  task_definition = aws_ecs_task_definition.app.arn
-  desired_count   = 2
+  name                 = var.service_name
+  cluster              = aws_ecs_cluster.main.id
+  task_definition      = aws_ecs_task_definition.app.arn
+  desired_count        = 2
+  force_new_deployment = true
 
   capacity_provider_strategy {
     capacity_provider = aws_ecs_capacity_provider.graviton.name
@@ -359,6 +398,31 @@ resource "aws_ecs_service" "app" {
   }
 
   depends_on = [aws_lb_listener.main, aws_ecs_cluster_capacity_providers.main]
+}
+
+# ---------- Auto Scaling ----------
+
+resource "aws_appautoscaling_target" "ecs" {
+  max_capacity       = 10
+  min_capacity       = 2
+  resource_id        = "service/${aws_ecs_cluster.main.name}/${aws_ecs_service.app.name}"
+  scalable_dimension = "ecs:service:DesiredCount"
+  service_namespace  = "ecs"
+}
+
+resource "aws_appautoscaling_policy" "ecs" {
+  name               = "${var.service_name}-cpu-scaling"
+  policy_type        = "TargetTrackingScaling"
+  resource_id        = aws_appautoscaling_target.ecs.resource_id
+  scalable_dimension = aws_appautoscaling_target.ecs.scalable_dimension
+  service_namespace  = aws_appautoscaling_target.ecs.service_namespace
+
+  target_tracking_scaling_policy_configuration {
+    target_value = 50.0
+    predefined_metric_specification {
+      predefined_metric_type = "ECSServiceAverageCPUUtilization"
+    }
+  }
 }
 
 # ---------- Outputs ----------

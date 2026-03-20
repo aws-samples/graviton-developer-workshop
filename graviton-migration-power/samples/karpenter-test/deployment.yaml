@@ -1,0 +1,24 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: primenumbers
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: primenumbers
+  template:
+    metadata:
+      labels:
+        app: primenumbers
+    spec:
+      nodeSelector:
+        intent: apps
+        kubernetes.io/arch: amd64
+      containers:
+        - name: primenumbers
+          image: public.ecr.aws/j4m3t0a6/primenumbers:latest
+          resources:
+            requests:
+              cpu: 1
+              memory: 512M

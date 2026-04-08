@@ -3,8 +3,8 @@ strands-agents[otel]>=0.1.0
 strands-agents-tools
 strands-agents[openai]
 
-# Langfuse tracing dependencies for clinical assistant monitoring
-langfuse>=2.0.0
+# MLflow tracing dependencies for clinical assistant monitoring
+mlflow>=3.7.0
 
 # MCP (Model Context Protocol) dependencies for healthcare data server
 mcp>=1.0.0

@@ -18,26 +18,18 @@ spec:
         kubernetes.io/arch: arm64
       containers:
       - name: healthcare-assistant
-        image: public.ecr.aws/j4m3t0a6/agents/healthcare-assistant:latest
+        image: public.ecr.aws/j4m3t0a6/agents/healthcare-assistant:v2.1
         ports:
         - containerPort: 8501
         env:
-        - name: LANGFUSE_PUBLIC_KEY
-          value: "your_langfuse_public_key_here"
-        - name: LANGFUSE_SECRET_KEY
-          value: "your_langfuse_secret_key_here"
-        - name: LANGFUSE_HOST
-          value: "http://langfuse-web:3000"
+        - name: MLFLOW_TRACKING_URI
+          value: "http://mlflow:80"
         - name: LITELLM_HOST
           value: "http://litellm-graviton:4000/v1"
         - name: MCP_HOST
           value: "http://healthcare-mcp-server:8000/mcp"
         - name: MODEL_ID
           value: "claude-4-sonnet"
-        - name: CLINICAL_SESSION_ID
-          value: "clinical-session-k8s"
-        - name: HEALTHCARE_PROVIDER_ID
-          value: "healthcare-provider@clinical-assistant.k8s"
         resources:
           requests:
             memory: "512Mi"

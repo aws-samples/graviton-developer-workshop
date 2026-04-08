@@ -1,6 +1,6 @@
 import logging
-import asyncio
 import os
+from dotenv import load_dotenv
 from strands import Agent
 from strands.models.openai import OpenAIModel
 from strands.tools.mcp import MCPClient
@@ -8,7 +8,7 @@ from mcp.client.streamable_http import streamablehttp_client
 import mlflow
 
 # Load environment variables from .env file
-#load_dotenv()
+load_dotenv()
 
 # Configure logging for debug information
 logging.getLogger("strands").setLevel(logging.INFO)
@@ -20,12 +20,17 @@ logging.basicConfig(
 
 def setup_mlflow_tracing():
     """Configure MLflow tracing"""
-    mlflow_tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "http://mlflow:80")
+    mlflow_tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "http://localhost:5000")
 
     try:
         mlflow.set_tracking_uri(mlflow_tracking_uri)
+        print(f"📡 MLflow tracking URI: {mlflow.get_tracking_uri()}")
         mlflow.set_experiment("clinical-assistant")
         mlflow.strands.autolog()
+        # Test trace to verify connectivity
+        with mlflow.start_span(name="test-trace") as span:
+            span.set_inputs({"test": "connection"})
+            span.set_outputs({"status": "ok"})
         print("✅ MLflow tracing enabled successfully!")
         return True
     except Exception as e:
@@ -33,27 +38,24 @@ def setup_mlflow_tracing():
         print("   Continuing without tracing...")
         return None
 
+# Configure the OpenAI model to connect to local Qwen3-8B server
 openai_model = OpenAIModel(
     client_args={
-        #"base_url": "http://localhost:4000/v1",
-        "base_url": os.environ.get("LITELLM_HOST", "http://litellm-graviton:4000/v1"), 
+        "base_url": "http://localhost:4000/v1",  # Local server endpoint
         "api_key": "your-secret-key"  # Required but can be dummy for local servers
     },
-    model_id=os.environ.get("MODEL_ID", "my-model"),  # Model identifier
-    temperature=0.3,  # Lower temperature for more consistent medical advice
-    max_tokens=2048
+    model_id="claude-4-sonnet",
+    params={"temperature": 0.3, "max_tokens": 2048}
 )
 
-def create_health_agent():
+def create_health_agent(session_id=None, provider_id=None):
     """Create the health agent with MCP healthcare data server connection and MLflow tracing"""
-    
-    mcp_host = os.environ.get("MCP_HOST", "http://healthcare-mcp-server:8000/mcp")
     
     # Setup MLflow tracing
     setup_mlflow_tracing()
     
     # Connect to the MCP healthcare server using streamable HTTP client
-    mcp_client = MCPClient(lambda: streamablehttp_client(mcp_host))
+    mcp_client = MCPClient(lambda: streamablehttp_client("http://localhost:8000/mcp"))
     
     # Get tools from the MCP server
     with mcp_client:
@@ -103,48 +105,67 @@ Remember: You are a support tool for healthcare professionals, not a replacement
         
         return health_agent, mcp_client
 
-
-# Cache agent and mcp_client at module level
-_health_agent = None
-_mcp_client = None
-
-
-def get_health_agent():
-    """Get or create the health agent singleton."""
-    global _health_agent, _mcp_client
-    if _health_agent is None:
-        _health_agent, _mcp_client = create_health_agent()
-    return _health_agent, _mcp_client
-
-
-def run_health_agent(question, st, health_agent, mcp_client):
-    message_placeholder = st.empty()
-    full_response = ""
-
-    async def process_streaming_response():
-        nonlocal full_response
-
-        try:
-            # Keep the MCP client connection alive during the session
-            with mcp_client:
+def main():
+    """Main function to run the health agent interactively"""
+    print("🏥 Clinical Decision Support Agent with MCP Healthcare Data Server")
+    print("=" * 65)
+    print("Connecting to MCP Healthcare Data Server at http://localhost:8000...")
+    
+    # Get optional session and provider information for tracing
+    session_id = os.environ.get("CLINICAL_SESSION_ID")
+    provider_id = os.environ.get("HEALTHCARE_PROVIDER_ID")
+    
+    try:
+        # Create the health agent with MCP connection and tracing
+        health_agent, mcp_client = create_health_agent(session_id=session_id, provider_id=provider_id)
+        
+        print("✅ Successfully connected to MCP Healthcare Data Server via streamable HTTP!")
+        print("This agent assists healthcare professionals with clinical decision-making.")
+        print("Available sample patients: PAT001 (John Doe), PAT002 (Jane Smith), PAT003 (Robert Johnson)")
+        print("Type 'quit' to exit.\n")
+        
+        # Show example queries
+        print("Example queries:")
+        print("- 'Get patient summary for PAT001'")
+        print("- 'Show lab results for John Doe in the last 30 days'")
+        print("- 'What are the risk factors for patient PAT003?'")
+        print("- 'Search for patients with diabetes'")
+        print("- 'Analyze the lab trends for PAT001'")
+        print("-" * 65)
+        
+        # Keep the MCP client connection alive during the session
+        with mcp_client:
+            while True:
                 try:
-                    # Stream the response
-                    agent_stream = health_agent.stream_async(question)
-                    async for event in agent_stream:
-                        if "data" in event:
-                            full_response += event["data"]
-                            message_placeholder.markdown(full_response)
+                    # Get user input
+                    user_input = input("\nDoctor: ").strip()
+                    
+                    if user_input.lower() in ['quit', 'exit', 'q']:
+                        print("Thank you for using the Clinical Decision Support Agent. Stay safe!")
+                        break
+                    
+                    if not user_input:
+                        continue
+                    
+                    # Process the query with the health agent
+                    # The agent will automatically use MCP tools when needed
+                    # All interactions will be traced to MLflow if configured
+                    print("\n🤖 Clinical Assistant:")
+                    response = health_agent(user_input)
+                    print(f"{response.message}\n")
+                    print("-" * 65)
+                    
+                except KeyboardInterrupt:
+                    print("\n\nGoodbye!")
+                    break
                 except Exception as e:
                     print(f"Error processing request: {e}")
-        except Exception as e:
-            print(f"Error processing request: {e}")
-            message_placeholder.markdown(
-                "Sorry, an error occurred while generating the response."
-            )
-            print(f"Error processing request: {e}")
+                    print("Please try again or type 'quit' to exit.\n")
+                    
+    except Exception as e:
+        print(f"❌ Failed to connect to MCP Healthcare Data Server: {e}")
+        print("Please ensure the MCP server is running at http://localhost:8000")
+        print("Start the MCP server with: python mcpserver.py")
 
-    asyncio.run(process_streaming_response())
-
-    return full_response
-
-
+if __name__ == "__main__":
+    main()

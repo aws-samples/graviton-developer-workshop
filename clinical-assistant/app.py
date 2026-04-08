@@ -70,6 +70,14 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
     st.session_state.greetings = False
 
+if "health_agent" not in st.session_state:
+    print("🆕 Creating new agent instance")
+    agent, mcp = health_agent_async.create_health_agent()
+    st.session_state.health_agent = agent
+    st.session_state.mcp_client = mcp
+else:
+    print(f"♻️ Reusing existing agent instance | Messages in memory: {len(st.session_state.health_agent.messages)}")
+
 # Display chat messages from history on app rerun
 def display_chat_messages():
     """Print message history
@@ -112,6 +120,8 @@ How can I assist you with your clinical analysis today?"""
 if clear_button or "messages" not in st.session_state:
     st.session_state.messages = []
     st.session_state.greetings = False
+    st.session_state.pop("health_agent", None)
+    st.session_state.pop("mcp_client", None)
     st.rerun()
 
 # Always show the chat input
@@ -126,6 +136,6 @@ if prompt := st.chat_input("Enter your clinical question or patient case..."):
     logger.info(f"Clinical prompt: {prompt}")
 
     with st.chat_message("assistant"):
-        response = health_agent_async.run_health_agent(prompt, st)
+        response = health_agent_async.run_health_agent(prompt, st, st.session_state.health_agent, st.session_state.mcp_client)
 
     st.session_state.messages.append({"role": "assistant", "content": response})

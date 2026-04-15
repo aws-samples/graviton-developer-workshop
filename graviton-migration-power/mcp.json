@@ -7,6 +7,58 @@
         "docker run --rm -i -v \"$(pwd)\":/workspace armlimited/arm-mcp:latest"
       ],
       "timeout": 180000
+    },"awslabs.terraform-mcp-server": {
+      "command": "uvx",
+      "args": [
+        "awslabs.terraform-mcp-server@latest"
+      ],
+      "env": {
+        "FASTMCP_LOG_LEVEL": "ERROR"
+      },
+      "disabled": false
+    },
+    "awslabs.eks-mcp-server": {
+      "command": "uvx",
+      "args": [
+        "awslabs.eks-mcp-server@latest",
+        "--allow-write",
+        "--allow-sensitive-data-access"
+      ],
+      "env": {
+        "FASTMCP_LOG_LEVEL": "ERROR"
+      },
+      "autoApprove": [],
+      "disabled": false,
+      "disabledTools": [
+        "get_cloudwatch_logs",
+        "get_cloudwatch_metrics",
+        "search_eks_troubleshoot_guide",
+        "manage_eks_stacks",
+        "list_k8s_resources",
+        "get_pod_logs",
+        "get_k8s_events",
+        "list_api_versions",
+        "manage_k8s_resource",
+        "apply_yaml",
+        "generate_app_manifest",
+        "add_inline_policy",
+        "get_policies_for_role",
+        "get_eks_metrics_guidance",
+        "get_eks_vpc_config",
+        "get_eks_insights"
+      ]
+    },
+    "awslabs.aws-pricing-mcp-server": {
+      "command": "uvx",
+      "args": [
+        "awslabs.aws-pricing-mcp-server@latest"
+      ],
+      "env": {
+        "FASTMCP_LOG_LEVEL": "ERROR",
+        "AWS_REGION": "us-east-1"
+      },
+      "disabled": false,
+      "autoApprove": []
     }
   }
 }

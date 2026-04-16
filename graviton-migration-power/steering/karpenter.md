@@ -1,7 +1,3 @@
----
-inclusion: manual
----
-
 # Karpenter Configuration Migration to Graviton (ARM64)
 
 This steering file guides the detection and migration of Karpenter configurations to use AWS Graviton (ARM64) instances.

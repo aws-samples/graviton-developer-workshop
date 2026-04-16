@@ -67,8 +67,39 @@ This power provides access to several specialized tools:
 
 ## Steering Files
 
-- **karpenter-graviton-migration.md** — Guides detection and migration of Karpenter configurations (NodePool, EC2NodeClass) to use Graviton ARM64 instances. Covers gradual rollout with taints/tolerations, instance family mappings, and post-migration cleanup. Manual inclusion — when Karpenter resources (NodePool, EC2NodeClass) are detected in the workspace, prompt the user: *"I noticed Karpenter configurations in your workspace. Would you like to activate the `#karpenter-graviton-migration` steering for guidance on migrating to Graviton?"*
+This power has the following steering files for detailed workflow guidance:
 
+- **karpenter.md** — Guides detection and migration of Karpenter configurations (NodePool, EC2NodeClass) to use Graviton ARM64 instances. Covers gradual rollout with taints/tolerations, instance family mappings, and post-migration cleanup.
+- **build-pipelines.md** — Guides adjusting CI/CD build pipelines for Graviton migration. Covers multi-arch Docker builds, Dockerfile adjustments, ARM64 build runners, cross-compilation, and common pitfalls when moving build infrastructure to ARM64.
+
+---
+
+## License & Legal
+
+### Power License
+
+This power is provided by AWS and is subject to the AWS Customer Agreement and applicable AWS service terms.
+
+### MCP Server Licenses
+
+This power uses the following MCP server and tools:
+
+- **arm-mcp** (`armswdev/arm-mcp:latest`): Docker container providing Arm migration tools
+  - Distributed via Docker Hub by Arm
+  - Contains multiple open-source tools with their respective licenses
+  - For complete license information, see: https://github.com/arm/mcp/blob/main/LICENSE
+
+
+### Third-Party Dependencies
+
+This power requires Docker to run the MCP server container. Docker is subject to its own licensing terms. See: https://www.docker.com/legal/docker-subscription-service-agreement/
+
+### Usage Terms
+
+By using this power, you acknowledge that:
+- You are responsible for compliance with all applicable licenses
+- Code analysis is performed using open-source tools within a Docker container
+- You should review and comply with individual tool licenses for production use
 
 ---
 

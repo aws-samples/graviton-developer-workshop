@@ -1,0 +1,61 @@
+pipeline {
+    agent {
+        kubernetes {
+            yaml '''
+              apiVersion: v1
+              kind: Pod
+              metadata:
+                name: buildah
+              spec:
+                serviceAccountName: ecr-serviceaccount
+                nodeSelector:
+                  intent: apps
+                  kubernetes.io/arch: amd64
+                containers:
+                - name: buildah
+                  image: 'quay.io/buildah/stable:latest'
+                  imagePullPolicy: Always
+                  command:
+                  - sleep
+                  args:
+                  - 99d
+                  tty: true
+                  securityContext:
+                    privileged: true
+                restartPolicy: Never
+            '''
+        }
+    }
+    stages {
+        stage('Make Image') {
+            environment {
+                DOCKERFILE  = "Dockerfile"
+                GITREPO     = "https://github.com/tohwsw/primenumbers.git"
+                CONTEXT     = "./"
+                REGISTRY    = 'JENKINS_ECR_URL'
+                IMAGE       = 'jenkinsrepo'
+                TAG         = 'amd64'
+                AWS_REGION  = 'AWS_DEFAULT_REGION'
+            }
+            steps {
+                container(name: 'buildah') {
+                    sh '''
+                    yum -y install git unzip
+                    curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+                    unzip awscliv2.zip
+                    ./aws/install
+                    
+                    git clone ${GITREPO} /tmp/repo
+                    cd /tmp/repo
+                    
+                    export REGISTRY_PASSWORD=$(aws ecr get-login-password --region ${AWS_REGION})
+                    echo $REGISTRY_PASSWORD | buildah login -u AWS --password-stdin "${REGISTRY}"
+                    
+                    buildah build --platform linux/amd64 -f ${DOCKERFILE} -t ${REGISTRY}/${IMAGE}:${TAG} ${CONTEXT}
+                    buildah push ${REGISTRY}/${IMAGE}:${TAG}
+                    '''
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,33 @@
+nodeSelector:
+  kubernetes.io/arch: arm64
+
+backendStore:
+  filepath:
+    enabled: true
+
+serviceMonitor:
+  enabled: false
+
+service:
+  type: ClusterIP
+  port: 80
+
+extraArgs:
+  - --gunicorn-opts=--log-level=info
+
+extraEnvVars:
+  MLFLOW_SERVER_ALLOWED_HOSTS: "*"
+  MLFLOW_SERVER_CORS_ALLOWED_ORIGINS: "*"
+
+ingress:
+  enabled: true
+  className: alb
+  hosts:
+    - host: ""
+      paths:
+        - path: /
+          pathType: Prefix
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/healthcheck-path: /health

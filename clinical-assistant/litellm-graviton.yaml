@@ -78,7 +78,7 @@ data:
       # Amazon Bedrock Models
       - model_name: claude-4-sonnet
         litellm_params:
-          model: bedrock/us.anthropic.claude-sonnet-4-20250514-v1:0
+          model: bedrock/global.anthropic.claude-sonnet-4-6
           aws_access_key_id: os.environ/AWS_ACCESS_KEY_ID
           aws_secret_access_key: os.environ/AWS_SECRET_ACCESS_KEY
           aws_region_name: os.environ/AWS_REGION_NAME
@@ -94,7 +94,7 @@ data:
       # Amazon Bedrock Models
       - model_name: my-model
         litellm_params:
-          model: bedrock/us.anthropic.claude-sonnet-4-20250514-v1:0
+          model: bedrock/global.anthropic.claude-sonnet-4-6
           aws_access_key_id: os.environ/AWS_ACCESS_KEY_ID
           aws_secret_access_key: os.environ/AWS_SECRET_ACCESS_KEY
           aws_region_name: os.environ/AWS_REGION_NAME

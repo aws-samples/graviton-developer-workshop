@@ -40,8 +40,7 @@ openai_model = OpenAIModel(
         "api_key": "your-secret-key"  # Required but can be dummy for local servers
     },
     model_id=os.environ.get("MODEL_ID", "my-model"),  # Model identifier
-    temperature=0.3,  # Lower temperature for more consistent medical advice
-    max_tokens=2048
+    params={"temperature": 0.3, "max_tokens": 2048}
 )
 
 def create_health_agent():

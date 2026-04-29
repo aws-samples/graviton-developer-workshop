@@ -2,8 +2,7 @@ nodeSelector:
   kubernetes.io/arch: arm64
 
 backendStore:
-  filepath:
-    enabled: true
+  defaultSqlitePath: "mlflow.db"
 
 serviceMonitor:
   enabled: false
@@ -13,7 +12,7 @@ service:
   port: 80
 
 extraArgs:
-  - --gunicorn-opts=--log-level=info
+  gunicornOpts: "--log-level=info"
 
 extraEnvVars:
   MLFLOW_SERVER_ALLOWED_HOSTS: "*"

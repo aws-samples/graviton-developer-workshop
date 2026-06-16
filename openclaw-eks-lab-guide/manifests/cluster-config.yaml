@@ -1,0 +1,27 @@
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: openclaw-sandbox-lab
+  region: us-east-1
+  version: "1.36"
+  tags:
+    karpenter.sh/discovery: openclaw-sandbox-lab
+
+iam:
+  withOIDC: true
+
+karpenter:
+  version: "1.12.0"
+  withSpotInterruptionQueue: true
+
+managedNodeGroups:
+  - name: system
+    instanceType: m7g.large
+    minSize: 1
+    maxSize: 3
+    desiredCapacity: 2
+
+addons:
+  - name: eks-pod-identity-agent
+  - name: aws-ebs-csi-driver

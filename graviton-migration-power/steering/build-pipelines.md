@@ -1,28 +1,87 @@
 # Build Pipeline Migration to Graviton (ARM64)
 
-This steering file guides the detection and migration of CI/CD build pipelines when moving workloads to AWS Graviton (ARM64) instances.
+## Contents
+- [Workflow Checklist](#workflow-checklist)
+- [Decision Tree: Which Sections Apply](#decision-tree-which-sections-apply)
+- [Detection](#detection)
+- [Migration Steps](#migration-steps)
+  - [1. Multi-Architecture Container Builds](#1-multi-architecture-container-builds)
+  - [2. Dockerfile Adjustments](#2-dockerfile-adjustments)
+  - [3. Build Runner Configuration](#3-build-runner-configuration)
+  - [4. Dual-Architecture Testing](#4-dual-architecture-testing)
+  - [5. Native Compilation Flags](#5-native-compilation-flags)
+  - [6. Post-Migration Cleanup](#6-post-migration-cleanup)
+- [Example: Full Before → After](#example-full-before--after)
+- [Common Pitfalls](#common-pitfalls)
+- [Troubleshooting](#troubleshooting)
+- [References](#references)
+
+---
+
+## Workflow Checklist
+
+Copy and track progress:
+
+```
+Build Pipeline Migration Progress:
+- [ ] Step 1: Detect CI/CD configs and architecture-specific settings
+- [ ] Step 2: Verify base images are multi-arch
+- [ ] Step 3: Update Docker builds to produce multi-arch images
+- [ ] Step 4: Update Dockerfile for architecture-agnostic deps
+- [ ] Step 5: Configure ARM64 build runner (if needed)
+- [ ] Step 6: Test build output on ARM64
+- [ ] Step 7: Update build matrix for dual-arch testing (optional)
+- [ ] Step 8: Post-migration cleanup
+```
+
+**Steps 1-4 are mandatory.** Steps 5-7 depend on your CI system and project type. Step 8 happens after full migration.
+
+---
+
+## Decision Tree: Which Sections Apply
+
+Not every section applies to every project. Use this to focus:
+
+**What CI system?**
+- GitHub Actions → [Multi-Arch Builds (GitHub)](#github-actions) + [Runner Config (GitHub)](#github-actions-self-hosted-arm64-runner)
+- AWS CodeBuild → [Multi-Arch Builds (CodeBuild)](#aws-codebuild)
+- GitLab CI → [Runner Config (GitLab)](#gitlab-ci-arm64-runner-tag)
+- Jenkins → [Runner Config (Jenkins)](#jenkins-arm64-agent-label)
+- Other / shell scripts → [Multi-Arch Builds (CLI)](#docker-buildx-with-remote-native-builders)
+
+**Does the project compile native code (C/C++, Rust, Go with CGO)?**
+- Yes → Read [Native Compilation Flags](#5-native-compilation-flags)
+- No → Skip that section
+
+**Does the Dockerfile download architecture-specific binaries?**
+- Yes → Read [Dockerfile Adjustments](#2-dockerfile-adjustments)
+- No → Skip that section
+
+---
 
 ## Detection
 
-When analyzing a workspace for build pipeline configurations, look for:
+Scan the workspace for:
 
-- CI/CD config files: `.github/workflows/*.yml`, `.gitlab-ci.yml`, `Jenkinsfile`, `buildspec.yml`, `Dockerfile`, `.circleci/config.yml`, `bitbucket-pipelines.yml`
-- Build scripts referencing specific architectures (`x86_64`, `amd64`, `linux/amd64`)
-- Docker build commands without `--platform` flags or with hardcoded `linux/amd64`
-- Container image tags using architecture-specific suffixes (e.g., `:latest-amd64`)
-- Build matrix configurations that only include x86 targets
-- Terraform or CloudFormation templates provisioning build infrastructure on x86 instance types
-- Makefile or shell scripts with architecture-conditional logic
+- CI/CD config files: `.github/workflows/*.yml`, `.gitlab-ci.yml`, `Jenkinsfile`, `buildspec.yml`, `.circleci/config.yml`, `bitbucket-pipelines.yml`
+- Build scripts referencing `x86_64`, `amd64`, `linux/amd64`
+- Docker build commands without `--platform` or with hardcoded `linux/amd64`
+- Container image tags with architecture suffixes (`:latest-amd64`)
+- Build matrices that only include x86 targets
+- Terraform/CloudFormation provisioning build infra on x86 instance types
+- Makefiles or shell scripts with architecture-conditional logic
 
-## Migration Strategy
+---
+
+## Migration Steps
 
 ### 1. Multi-Architecture Container Builds
 
-The most common change is updating Docker builds to produce multi-arch images. This ensures images work on both x86 and Graviton nodes during the migration period. Always use native ARM64 build runners rather than QEMU emulation, which is significantly slower (5-10x) and can produce unreliable builds.
+Produce images that work on both x86 and Graviton. Always use native ARM64 build runners rather than QEMU emulation (5-10x slower, unreliable builds).
 
-#### Using Docker Buildx with Native Builders (GitHub Actions)
+#### GitHub Actions
 
-Use separate native runners for each architecture and merge the results into a single multi-arch manifest:
+Separate native runners per architecture, merged into one manifest:
 
 ```yaml
 jobs:
@@ -64,12 +123,11 @@ jobs:
           docker manifest push ${{ env.REGISTRY }}/${{ env.IMAGE }}:${{ env.TAG }}
 ```
 
-#### Using Docker Buildx with Remote Native Builders (CLI / Jenkinsfile / Shell Scripts)
+#### Docker Buildx with Remote Native Builders
 
-Create a buildx builder that uses remote native nodes instead of emulation:
+For CLI, Jenkinsfile, or shell scripts:
 
 ```bash
-# Create a builder using remote native ARM64 and x86 Docker hosts
 docker buildx create --name multiarch-builder --platform linux/amd64 --node builder-amd64 unix:///var/run/docker.sock
 docker buildx create --name multiarch-builder --append --platform linux/arm64 --node builder-arm64 ssh://user@arm64-host
 docker buildx use multiarch-builder
@@ -80,9 +138,9 @@ docker buildx build \
   --push .
 ```
 
-#### Using AWS CodeBuild
+#### AWS CodeBuild
 
-Use a Graviton-based CodeBuild environment for native ARM64 builds:
+Use a Graviton-based environment for native ARM64 builds:
 
 ```json
 {
@@ -94,44 +152,34 @@ Use a Graviton-based CodeBuild environment for native ARM64 builds:
 }
 ```
 
-For multi-arch images, use separate CodeBuild projects (one x86, one Graviton) and combine with a manifest creation step:
+For multi-arch: use separate CodeBuild projects (x86 + Graviton), then create a manifest in a third step.
 
-```yaml
-version: 0.2
-env:
-  variables:
-    IMAGE_REPO: "my-repo"
-phases:
-  pre_build:
-    commands:
-      - aws ecr get-login-password | docker login --username AWS --password-stdin ${ECR_REGISTRY}
-  build:
-    commands:
-      - docker build --tag ${ECR_REGISTRY}/${IMAGE_REPO}:${IMAGE_TAG}-arm64 .
-      - docker push ${ECR_REGISTRY}/${IMAGE_REPO}:${IMAGE_TAG}-arm64
+**Validation gate**: After building, verify the manifest contains both architectures:
+
+```bash
+docker manifest inspect ${REGISTRY}/${IMAGE}:${TAG} | grep architecture
+# Should show both "amd64" and "arm64"
 ```
 
 ### 2. Dockerfile Adjustments
 
-Ensure Dockerfiles are architecture-agnostic or handle multi-arch properly.
-
 #### Use Multi-Arch Base Images
 
-Prefer official images that already support multiple architectures:
-
 ```dockerfile
-# Good: official images are typically multi-arch
+# Good: official images are multi-arch
 FROM python:3.12-slim
 FROM node:20-alpine
 FROM amazoncorretto:21
 
-# Avoid: architecture-specific tags
+# Bad: architecture-specific tags
 # FROM amd64/python:3.12-slim
 ```
 
-#### Handle Architecture-Specific Dependencies
+**Validation gate**: Use `check_image` or `skopeo` to verify the base image supports `linux/arm64`.
 
-When a Dockerfile installs native binaries or libraries, use build args or runtime detection:
+#### Handle Architecture-Specific Binaries
+
+Use Docker's built-in `TARGETARCH` variable:
 
 ```dockerfile
 ARG TARGETARCH
@@ -143,11 +191,11 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
     tar -xzf tool.tar.gz -C /usr/local/bin/
 ```
 
-Docker Buildx automatically sets `TARGETARCH` (`amd64` or `arm64`) during multi-platform builds.
+`TARGETARCH` is automatically set by Docker Buildx during multi-platform builds.
 
-### 3. Build Agent / Runner Configuration
+### 3. Build Runner Configuration
 
-If your CI system uses self-hosted runners or build agents, you may need ARM64 runners.
+Only needed if your CI uses self-hosted runners and you need native ARM64 builds.
 
 #### GitHub Actions (Self-Hosted ARM64 Runner)
 
@@ -185,13 +233,12 @@ pipeline {
 }
 ```
 
-### 4. Build Matrix for Dual-Architecture Testing
+### 4. Dual-Architecture Testing
 
-During migration, run tests on both architectures to catch issues early.
-
-#### GitHub Actions Matrix
+Run tests on both architectures during migration to catch issues early.
 
 ```yaml
+# GitHub Actions matrix example
 jobs:
   test:
     strategy:
@@ -208,69 +255,162 @@ jobs:
       - run: make test
 ```
 
-### 5. Native Dependency and Compilation Flags
+**Validation gate**: Both architecture builds must pass before merging.
 
-When build scripts compile native code (C/C++, Rust, Go CGO), check for:
+### 5. Native Compilation Flags
 
-- Hardcoded `-march=x86-64` or `-mtune` flags targeting x86 microarchitectures
-- x86-specific SIMD intrinsics (`SSE`, `AVX`) that need ARM equivalents (`NEON`, `SVE`)
+**Only applies if the project compiles native code (C/C++, Rust, Go with CGO).**
+
+Check for:
+- Hardcoded `-march=x86-64` or `-mtune` flags
+- x86 SIMD intrinsics (`SSE`, `AVX`) → need ARM equivalents (`NEON`, `SVE`)
 - Assembly files (`.s`, `.asm`) with x86 instructions
-- Go builds with `GOARCH=amd64` hardcoded
+- `GOARCH=amd64` hardcoded in build scripts
 
-#### Go (Native Build on ARM64 Runner)
-
-Build natively on an ARM64 runner for best performance:
+#### Go
 
 ```bash
-# On an ARM64 runner, GOARCH defaults to arm64
+# On ARM64 runner, GOARCH defaults to arm64
 go build -o app
-```
 
-For pipelines that still need both architectures, build each on its native runner:
-
-```bash
-# On x86 runner
-GOOS=linux GOARCH=amd64 go build -o app-amd64
-
-# On ARM64 runner
+# For cross-build (prefer native builds instead):
 GOOS=linux GOARCH=arm64 go build -o app-arm64
 ```
 
-#### Rust (Native Build on ARM64 Runner)
-
-Build natively on an ARM64 runner rather than cross-compiling:
+#### Rust
 
 ```bash
-# On an ARM64 runner, the default target is aarch64
+# On ARM64 runner, default target is aarch64
 cargo build --release
 ```
 
 ### 6. Post-Migration Cleanup
 
-After all workloads are running on Graviton:
+After all workloads run on Graviton:
 
-- Remove `linux/amd64` from multi-platform build targets if x86 is no longer needed
-- Remove architecture-conditional logic from Dockerfiles and build scripts
-- Update build infrastructure (CodeBuild projects, self-hosted runners) to use Graviton instance types for cost savings
-- Consolidate separate per-architecture build jobs into single ARM64-native jobs
+- Remove `linux/amd64` from build targets if x86 no longer needed
+- Remove architecture-conditional logic from Dockerfiles
+- Switch build infrastructure to Graviton instances for cost savings
+- Consolidate per-architecture jobs into single ARM64-native jobs
 
-## Key Checks
+---
 
-- Verify all base images in Dockerfiles support `linux/arm64` using the `check_image` or `skopeo` tools
-- Run `migrate_ease_scan` on application source to detect architecture-specific code patterns
-- Search the knowledge base for any native dependencies that may lack ARM64 support
-- Test build output on ARM64 before deploying to production
-- Check that build caches are separated by architecture to avoid cross-arch cache poisoning
+## Example: Full Before → After
+
+### Before: GitHub Actions (x86-only)
+
+```yaml
+name: Build and Push
+on: push
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t myregistry/myapp:latest .
+      - run: docker push myregistry/myapp:latest
+```
+
+### After: GitHub Actions (multi-arch with native runners)
+
+```yaml
+name: Build and Push (Multi-Arch)
+on: push
+
+jobs:
+  build-amd64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: myregistry
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: myregistry/myapp:latest-amd64
+
+  build-arm64:
+    runs-on: [self-hosted, linux, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: myregistry
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/arm64
+          push: true
+          tags: myregistry/myapp:latest-arm64
+
+  manifest:
+    needs: [build-amd64, build-arm64]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/login-action@v3
+        with:
+          registry: myregistry
+      - run: |
+          docker manifest create myregistry/myapp:latest \
+            myregistry/myapp:latest-amd64 \
+            myregistry/myapp:latest-arm64
+          docker manifest push myregistry/myapp:latest
+```
+
+---
 
 ## Common Pitfalls
 
 | Issue | Symptom | Fix |
 |-------|---------|-----|
-| Missing multi-arch manifest | `exec format error` at runtime | Build per-arch on native runners and create a manifest |
+| Missing multi-arch manifest | `exec format error` at runtime | Build per-arch on native runners, create manifest |
 | x86-only binary downloads in Dockerfile | Build fails on ARM64 | Use `TARGETARCH` to select correct binary |
 | Hardcoded `amd64` in image tags | Wrong image pulled on Graviton nodes | Use multi-arch tags or manifest lists |
 | Native extensions not compiled for ARM64 | Import errors or segfaults | Rebuild native deps on ARM64 build runner |
 | Shared build cache across architectures | Corrupt or wrong-arch artifacts | Separate build caches by architecture |
+| QEMU emulation used instead of native runners | Builds 5-10x slower, intermittent failures | Use native ARM64 runners or remote builders |
+
+---
+
+## Troubleshooting
+
+### Build Fails with "exec format error"
+
+**Symptom**: Docker build step fails immediately with `exec format error`
+**Cause**: Trying to run x86 binary on ARM64 runner (or vice versa) without emulation
+**Fix**: Ensure you're building with `--platform` matching the runner architecture, or use native runners per arch.
+
+### ARM64 Runner Not Available
+
+**Symptom**: Job stays queued with "waiting for runner"
+**Cause**: No self-hosted ARM64 runner registered, or runner is offline
+**Fix**:
+1. For GitHub Actions: Set up a self-hosted runner on a Graviton instance
+2. For CodeBuild: Use `ARM_CONTAINER` environment type
+3. For GitLab: Register a runner with the `arm64` tag on a Graviton instance
+
+### Multi-Arch Manifest Push Fails
+
+**Symptom**: `docker manifest push` returns authentication or "not found" error
+**Cause**: Per-arch images not pushed yet, or registry login expired between jobs
+**Fix**: Ensure per-arch images are pushed before the manifest job runs. Re-authenticate in the manifest job.
+
+### Native Dependency Compilation Fails on ARM64
+
+**Symptom**: `pip install` or `npm install` fails with compilation errors on ARM64 runner
+**Cause**: Package has C extensions that need ARM64-specific build tools
+**Fix**:
+1. Install build essentials: `apt-get install build-essential`
+2. Check if a pre-built ARM64 wheel/binary exists (newer version may have it)
+3. If no ARM64 support exists, flag as migration blocker
+
+---
 
 ## References
 

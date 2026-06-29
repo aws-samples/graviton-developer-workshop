@@ -38,7 +38,7 @@ kind: EC2NodeClass
 metadata:
   name: gvisor
 spec:
-  role: "KarpenterNodeRole-${CLUSTER_NAME}"
+  role: "eksctl-KarpenterNodeRole-${CLUSTER_NAME}"
   amiSelectorTerms:
     - alias: al2023@latest
   subnetSelectorTerms:

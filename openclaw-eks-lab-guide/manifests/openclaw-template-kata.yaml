@@ -1,0 +1,79 @@
+apiVersion: extensions.agents.x-k8s.io/v1alpha1
+kind: SandboxTemplate
+metadata:
+  name: openclaw-kata
+  namespace: openclaw-agents
+spec:
+  podTemplate:
+    metadata:
+      labels:
+        app: openclaw
+        isolation: kata
+    spec:
+      runtimeClassName: kata
+      terminationGracePeriodSeconds: 10
+      serviceAccountName: openclaw-agent-sa
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      initContainers:
+        - name: copy-config
+          image: busybox
+          command: ["sh", "-c", "cp /config-src/openclaw.json /etc/openclaw/openclaw.json"]
+          volumeMounts:
+            - mountPath: /config-src
+              name: config-source
+            - mountPath: /etc/openclaw
+              name: config-writable
+      containers:
+        - name: openclaw
+          image: ghcr.io/openclaw/openclaw:2026.5.4-slim
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              memory: "1Gi"
+          env:
+            - name: AWS_REGION
+              value: "us-east-1"
+            - name: OPENCLAW_CONFIG_PATH
+              value: "/etc/openclaw/openclaw.json"
+          command:
+            - node
+            - dist/index.js
+            - gateway
+            - --bind=lan
+            - --port
+            - "18789"
+            - --allow-unconfigured
+          ports:
+            - containerPort: 18789
+          volumeMounts:
+            - mountPath: /home/node/.openclaw/workspace
+              name: workspace-pvc
+            - mountPath: /etc/openclaw
+              name: config-writable
+      volumes:
+        - name: config-source
+          configMap:
+            name: openclaw-config
+        - name: config-writable
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: workspace-pvc
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 10Gi

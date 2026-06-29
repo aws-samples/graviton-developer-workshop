@@ -1,0 +1,12 @@
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: kata
+handler: kata-clh
+scheduling:
+  nodeSelector:
+    runtime: kata
+  tolerations:
+    - key: runtime
+      value: kata
+      effect: NoSchedule

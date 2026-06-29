@@ -1,21 +1,22 @@
 # OpenClaw on Amazon EKS with Agent Sandbox — Lab Guide
 
-This hands-on lab walks you through deploying OpenClaw AI agents on Amazon EKS (Standard) with Karpenter and the [kubernetes-sigs/agent-sandbox](https://github.com/kubernetes-sigs/agent-sandbox) project. You'll use the Sandbox CRD for lifecycle management, gVisor for kernel-level isolation, Pod Identity for keyless Bedrock access, Kubernetes network policies for egress control, and Karpenter for intelligent node autoscaling with dedicated gVisor-capable nodes.
+This hands-on lab walks you through deploying OpenClaw AI agents on Amazon EKS (Standard) with Karpenter and the [kubernetes-sigs/agent-sandbox](https://github.com/kubernetes-sigs/agent-sandbox) project. You'll use the Sandbox CRD for lifecycle management, gVisor and Kata Containers for tiered runtime isolation, Pod Identity for keyless Bedrock access, Kubernetes network policies for egress control, and Karpenter for intelligent node autoscaling with dedicated isolation-capable nodes.
 
 ## Why Agent Sandbox?
 
 The [Agent Sandbox](https://kubernetes.io/blog/2026/03/20/running-agents-on-kubernetes-with-agent-sandbox/) project (SIG Apps) provides a Kubernetes-native abstraction purpose-built for AI agent workloads:
 
 - **Sandbox CRD** — a declarative, single-container environment with stable identity and persistent storage
-- **SandboxTemplate** — reusable runtime templates (runc, gVisor) that decouple workload config from isolation policy
+- **SandboxTemplate** — reusable runtime templates (runc, gVisor, Kata) that decouple workload config from isolation policy
 - **SandboxWarmPool** — pre-provisioned sandbox pods that eliminate cold-start latency for agents
 
 ## Why Standard EKS + Karpenter (not Auto Mode)?
 
-gVisor requires installing the `runsc` containerd shim on nodes at boot. EKS Auto Mode doesn't allow custom AMIs or user-data, making gVisor impossible. Standard EKS with Karpenter gives you:
+gVisor requires installing the `runsc` containerd shim on nodes at boot. Kata Containers requires bare metal instances with the `kata-containers` runtime installed. EKS Auto Mode doesn't allow custom AMIs or user-data, making both impossible. Standard EKS with Karpenter gives you:
 
-- **Custom node configuration** — AL2023 user-data installs gVisor at boot
-- **Dedicated gVisor NodePools** — tainted nodes ensure only sandbox workloads land there
+- **Custom node configuration** — AL2023 user-data installs gVisor or Kata at boot
+- **Dedicated NodePools** — tainted nodes ensure only sandbox workloads land on isolation-capable nodes
+- **Instance type control** — gVisor runs on any instance; Kata requires `.metal` for hardware virtualization
 - **Karpenter autoscaling** — nodes provision in seconds based on pending pod demand
 - **Full runtime control** — you own the AMI, containerd config, and node lifecycle
 
@@ -38,15 +39,17 @@ gVisor requires installing the `runsc` containerd shim on nodes at boot. EKS Aut
 │  │                                                                    │  │
 │  │  SandboxTemplate: openclaw-standard (runc)                         │  │
 │  │  SandboxTemplate: openclaw-gvisor (gVisor + Sentry)                │  │
+│  │  SandboxTemplate: openclaw-kata (Kata + Cloud Hypervisor)          │  │
 │  │  SandboxWarmPool: openclaw-pool (3 runc)                           │  │
 │  │  SandboxWarmPool: openclaw-gvisor-pool (3 gVisor)                  │  │
+│  │  SandboxWarmPool: openclaw-kata-pool (2 Kata)                      │  │
 │  │                                                                    │  │
 │  │  ┌──────────────────────────────────────────────────────────────┐  │  │
 │  │  │  Sandbox pod (claimed from warm pool)                        │  │  │
 │  │  │  ┌────────────────────────────────────────────────────────┐  │  │  │
 │  │  │  │  OpenClaw container                                    │  │  │  │
 │  │  │  │  • Claude on Bedrock (Pod Identity — no keys)          │  │  │  │
-│  │  │  │  • gVisor Sentry (syscalls never reach host kernel)    │  │  │  │
+│  │  │  │  • gVisor Sentry OR Kata micro-VM (tiered isolation)   │  │  │  │
 │  │  │  │  • Network Policy (egress allowlist)                   │  │  │  │
 │  │  │  └────────────────────────────────────────────────────────┘  │  │  │
 │  │  │  PVC: 10Gi gp3 (encrypted, via volumeClaimTemplate)          │  │  │
@@ -56,11 +59,12 @@ gVisor requires installing the `runsc` containerd shim on nodes at boot. EKS Aut
 │  └────────────────────────────────────────────────────────────────────┘  │
 │                                                                          │
 │  Karpenter-Managed Nodes                                                 │
-│  ┌──────────────────────────────┐  ┌──────────────────────────────────┐  │
-│  │  NodePool: general           │  │  NodePool: gvisor                │  │
-│  │  AL2023, Graviton (arm64)    │  │  AL2023 + runsc shim at boot     │  │
-│  │  Controller, system pods     │  │  Taint: runtime=gvisor:NoSchedule│  │
-│  └──────────────────────────────┘  └──────────────────────────────────┘  │
+│  ┌──────────────────────┐ ┌──────────────────────┐ ┌──────────────────┐  │
+│  │  NodePool: general   │ │  NodePool: gvisor    │ │  NodePool: kata  │  │
+│  │  AL2023, Graviton    │ │  AL2023 + runsc shim │ │  AL2023 + kata   │  │
+│  │  Controller, system  │ │  Taint: gvisor       │ │  .metal instances│  │
+│  │                      │ │                      │ │  Taint: kata     │  │
+│  └──────────────────────┘ └──────────────────────┘ └──────────────────┘  │
 └──────────────────────────────────────────────────────────────────────────┘
          │
          ▼
@@ -74,19 +78,23 @@ gVisor requires installing the `runsc` containerd shim on nodes at boot. EKS Aut
 ## Security Layers
 
 ```
-┌─────────────────────────────────────────────────┐
-│  Application (OpenClaw agent)                   │
-├─────────────────────────────────────────────────┤
-│  Network Policy (egress allowlist)              │  ← only approved ports
-├─────────────────────────────────────────────────┤
-│  gVisor Sentry (user-space kernel)              │  ← syscalls stop here
-├─────────────────────────────────────────────────┤
-│  Container securityContext (drop ALL caps)      │  ← no privilege escalation
-├─────────────────────────────────────────────────┤
-│  Host kernel (AL2023, minimal)                  │  ← never reached by container
-├─────────────────────────────────────────────────┤
-│  EC2 instance (Karpenter-managed, auto-scaled)  │
-└─────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────┐
+│  Application (OpenClaw agent)                         │
+├───────────────────────────────────────────────────────┤
+│  Network Policy (egress allowlist)                    │  ← only approved ports
+├───────────────────────────────────────────────────────┤
+│  Runtime Isolation (choose one per tier):             │
+│  • gVisor Sentry (user-space kernel)                  │  ← syscalls stop here
+│  • Kata micro-VM (Cloud Hypervisor)                   │  ← full kernel boundary
+├───────────────────────────────────────────────────────┤
+│  Container securityContext (drop ALL caps)            │  ← no privilege escalation
+├───────────────────────────────────────────────────────┤
+│  Host kernel (AL2023, minimal)                        │  ← unreachable by workload
+├───────────────────────────────────────────────────────┤
+│  EC2 instance (Karpenter-managed, auto-scaled)        │
+│  • gVisor: standard Graviton instances                │
+│  • Kata: bare metal (.metal) instances                │
+└───────────────────────────────────────────────────────┘
 ```
 
 ## Prerequisites
@@ -107,8 +115,9 @@ gVisor requires installing the `runsc` containerd shim on nodes at boot. EKS Aut
 | 4 | [Deploy OpenClaw with a Sandbox CRD](#module-4-deploy-openclaw-with-a-sandbox-crd) | 10 min |
 | 5 | [Scale with SandboxTemplate and SandboxWarmPool](#module-5-scale-with-sandboxtemplate-and-sandboxwarmpool) | 15 min |
 | 6 | [Harden with gVisor Runtime Isolation](#module-6-harden-with-gvisor-runtime-isolation) | 20 min |
-| 7 | [Restrict Egress with Network Policy](#module-7-restrict-egress-with-network-policy) | 10 min |
-| 8 | [Cleanup](#module-8-cleanup) | 5 min |
+| 7 | [Isolate with Kata Containers (VM-level)](#module-7-isolate-with-kata-containers-vm-level) | 20 min |
+| 8 | [Restrict Egress with Network Policy](#module-8-restrict-egress-with-network-policy) | 10 min |
+| 9 | [Cleanup](#module-9-cleanup) | 5 min |
 
 ---
 
@@ -767,7 +776,7 @@ spec:
 ```
 
 ```bash
-envsubst < manifests/nodepool-gvisor.yaml | kubectl apply -f -
+envsubst '$CLUSTER_NAME' < manifests/nodepool-gvisor.yaml | kubectl apply -f -
 ```
 
 ### 6.3 Create the RuntimeClass
@@ -955,11 +964,371 @@ kubectl exec -n openclaw-agents $SANDBOX_NAME -c openclaw -- date -s "2020-01-01
 
 ---
 
-## Module 7: Restrict Egress with Network Policy
+
+## Module 7: Isolate with Kata Containers (VM-level)
+
+Kata Containers runs each pod inside a lightweight virtual machine using Cloud Hypervisor (CLH). Unlike gVisor's user-space kernel, Kata provides a **full hardware-enforced kernel boundary** — each agent gets its own Linux kernel running in a micro-VM. This is the strongest isolation tier, ideal for executing completely untrusted or hostile code.
+
+### 7.1 Why Kata for AI agents?
+
+| Threat | How Kata helps |
+|--------|---------------|
+| Kernel zero-day exploit | Each pod has its own kernel — exploit is contained within the micro-VM |
+| Container escape | There is no shared kernel to escape to — the host kernel is behind a VMM boundary |
+| Cross-tenant data leakage | Hardware-enforced memory isolation between VMs |
+| Compromised agent pivoting to node | The agent sees a virtual machine, not the real node |
+
+### 7.2 gVisor vs Kata — when to use which
+
+| | gVisor | Kata |
+|---|---|---|
+| Isolation mechanism | User-space kernel (Sentry) | Hardware VM (Cloud Hypervisor) |
+| Instance requirement | Any instance | `.metal` only |
+| Cold start overhead | ~0ms | ~1-3s (hidden by warm pool) |
+| Memory overhead | ~20-50MB | ~128-256MB per VM |
+| Syscall compatibility | Subset implemented by Sentry | Full Linux kernel |
+| Best for | General untrusted code | Hostile workloads, compliance requirements |
+
+### 7.3 Create a Kata-capable Karpenter NodePool
+
+Kata requires bare metal instances for hardware virtualization. This NodePool provisions Graviton `.metal` instances with Kata + Cloud Hypervisor installed at boot:
+
+```yaml
+# manifests/nodepool-kata.yaml
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: kata
+spec:
+  template:
+    metadata:
+      labels:
+        runtime: kata
+    spec:
+      taints:
+        - key: runtime
+          value: kata
+          effect: NoSchedule
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: kata
+      requirements:
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["arm64"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values: ["m7g.metal", "c7g.metal", "m6g.metal"]
+  limits:
+    cpu: "192"
+    memory: 512Gi
+  disruption:
+    consolidationPolicy: WhenEmpty
+    consolidateAfter: 60m
+---
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: kata
+spec:
+  role: "KarpenterNodeRole-${CLUSTER_NAME}"
+  amiSelectorTerms:
+    - alias: al2023@latest
+  subnetSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: "${CLUSTER_NAME}"
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: "${CLUSTER_NAME}"
+  userData: |
+    MIME-Version: 1.0
+    Content-Type: multipart/mixed; boundary="//"
+
+    --//
+    Content-Type: text/x-shellscript; charset="us-ascii"
+
+    #!/bin/bash
+    set -euxo pipefail
+
+    # Install Kata Containers with Cloud Hypervisor VMM
+    KATA_VERSION="3.32.0"
+    ARCH=$(uname -m)
+    # Kata release assets use 'arm64' not 'aarch64'
+    [ "$ARCH" = "aarch64" ] && DL_ARCH="arm64" || DL_ARCH="amd64"
+
+    # Download and install (3.32+ uses .tar.zst)
+    yum install -y zstd
+    curl -fsSL -o /tmp/kata-static.tar.zst \
+      "https://github.com/kata-containers/kata-containers/releases/download/${KATA_VERSION}/kata-static-${KATA_VERSION}-${DL_ARCH}.tar.zst"
+    tar --use-compress-program=unzstd -xf /tmp/kata-static.tar.zst -C /
+    rm -f /tmp/kata-static.tar.zst
+
+    # Link binaries
+    ln -sf /opt/kata/bin/kata-runtime /usr/local/bin/kata-runtime
+    ln -sf /opt/kata/bin/containerd-shim-kata-v2 /usr/local/bin/containerd-shim-kata-v2
+
+    # Register kata runtime with containerd using CLH configuration
+    cat <<'EOT' >> /etc/containerd/config.toml
+
+    [plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.kata-clh]
+      runtime_type = "io.containerd.kata.v2"
+      privileged_without_host_devices = true
+      pod_annotations = ["io.katacontainers.*"]
+
+    [plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.kata-clh.options]
+      ConfigPath = "/opt/kata/share/defaults/kata-containers/configuration-clh.toml"
+    EOT
+
+    systemctl restart containerd
+    --//
+```
+
+```bash
+envsubst '$CLUSTER_NAME' < manifests/nodepool-kata.yaml | kubectl apply -f -
+```
+
+> **Note:** `.metal` instances are significantly more expensive than standard instances (~$6.50/hr for `m7g.metal`). The `consolidateAfter: 60m` gives ample time before Karpenter removes idle metal nodes.
+
+### 7.4 Create the RuntimeClass
+
+```yaml
+# manifests/runtimeclass-kata.yaml
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: kata
+handler: kata-clh
+scheduling:
+  nodeSelector:
+    runtime: kata
+  tolerations:
+    - key: runtime
+      value: kata
+      effect: NoSchedule
+```
+
+```bash
+kubectl apply -f manifests/runtimeclass-kata.yaml
+```
+
+Like gVisor, the `scheduling` block ensures Kata pods land only on `.metal` nodes with the Kata runtime installed.
+
+### 7.5 Create a Kata SandboxTemplate
+
+```yaml
+# manifests/openclaw-template-kata.yaml
+apiVersion: extensions.agents.x-k8s.io/v1alpha1
+kind: SandboxTemplate
+metadata:
+  name: openclaw-kata
+  namespace: openclaw-agents
+spec:
+  podTemplate:
+    metadata:
+      labels:
+        app: openclaw
+        isolation: kata
+    spec:
+      runtimeClassName: kata
+      terminationGracePeriodSeconds: 10
+      serviceAccountName: openclaw-agent-sa
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      initContainers:
+        - name: copy-config
+          image: busybox
+          command: ["sh", "-c", "cp /config-src/openclaw.json /etc/openclaw/openclaw.json"]
+          volumeMounts:
+            - mountPath: /config-src
+              name: config-source
+            - mountPath: /etc/openclaw
+              name: config-writable
+      containers:
+        - name: openclaw
+          image: ghcr.io/openclaw/openclaw:2026.5.4-slim
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              memory: "1Gi"
+          env:
+            - name: AWS_REGION
+              value: "us-east-1"
+            - name: OPENCLAW_CONFIG_PATH
+              value: "/etc/openclaw/openclaw.json"
+          command:
+            - node
+            - dist/index.js
+            - gateway
+            - --bind=lan
+            - --port
+            - "18789"
+            - --allow-unconfigured
+          ports:
+            - containerPort: 18789
+          volumeMounts:
+            - mountPath: /home/node/.openclaw/workspace
+              name: workspace-pvc
+            - mountPath: /etc/openclaw
+              name: config-writable
+      volumes:
+        - name: config-source
+          configMap:
+            name: openclaw-config
+        - name: config-writable
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: workspace-pvc
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 10Gi
+```
+
+```bash
+kubectl apply -f manifests/openclaw-template-kata.yaml
+```
+
+### 7.6 Create a Kata warm pool
+
+The warm pool is critical for Kata — it pre-boots micro-VMs so that claiming a sandbox is instant despite the ~1-3s VM boot time. We use 2 replicas (vs 3 for gVisor) to manage `.metal` cost:
+
+```yaml
+# manifests/openclaw-warmpool-kata.yaml
+apiVersion: extensions.agents.x-k8s.io/v1alpha1
+kind: SandboxWarmPool
+metadata:
+  name: openclaw-kata-pool
+  namespace: openclaw-agents
+spec:
+  sandboxTemplateRef:
+    name: openclaw-kata
+  replicas: 2
+```
+
+```bash
+kubectl apply -f manifests/openclaw-warmpool-kata.yaml
+```
+
+This triggers Karpenter to provision a `.metal` node. Watch the node come up:
+
+```bash
+kubectl get nodes -w -l runtime=kata
+```
+
+### 7.7 Claim a Kata-isolated sandbox
+
+```yaml
+# manifests/openclaw-claim-kata.yaml
+apiVersion: extensions.agents.x-k8s.io/v1alpha1
+kind: SandboxClaim
+metadata:
+  name: vm-agent-001
+  namespace: openclaw-agents
+spec:
+  sandboxTemplateRef:
+    name: openclaw-kata
+```
+
+```bash
+kubectl apply -f manifests/openclaw-claim-kata.yaml
+```
+
+### 7.8 Verify Kata VM isolation
+
+```bash
+# Get the sandbox name assigned to the claim
+SANDBOX_NAME=$(kubectl get sandboxclaim vm-agent-001 -n openclaw-agents -o jsonpath='{.status.sandbox.name}')
+echo "Claimed sandbox: $SANDBOX_NAME"
+
+# Verify runtimeClassName
+kubectl get pod $SANDBOX_NAME -n openclaw-agents -o jsonpath='{.spec.runtimeClassName}'
+# Expected: kata
+
+# Verify the node is a .metal instance
+NODE=$(kubectl get pod $SANDBOX_NAME -n openclaw-agents -o jsonpath='{.spec.nodeName}')
+kubectl get node $NODE -o jsonpath='{.metadata.labels.node\.kubernetes\.io/instance-type}'
+# Expected: m7g.metal (or c7g.metal / m6g.metal)
+
+# Check kernel — Kata runs its own guest kernel, NOT the host's
+kubectl exec -n openclaw-agents $SANDBOX_NAME -c openclaw -- uname -r
+# Expected: 6.18.x (Kata's guest kernel, different from the host's 6.18.x-amzn2023)
+
+# Check dmesg — shows a full Linux boot sequence inside the micro-VM
+kubectl exec -n openclaw-agents $SANDBOX_NAME -c openclaw -- dmesg 2>&1 | head -5
+# Expected:
+#   [0.000000] Booting Linux on physical CPU 0x0000000000 [0x411fd401]
+#   [0.000000] Linux version 6.18.35 ...
+#   [0.000000] KASLR enabled
+#   [0.000000] Machine model: linux,dummy-virt
+#   [0.000000] efi: UEFI not found.
+
+# Check nproc — shows only the allocated vCPU, not the host's 64 cores
+kubectl exec -n openclaw-agents $SANDBOX_NAME -c openclaw -- nproc
+# Expected: 1
+
+# /proc/cpuinfo — on ARM/Graviton, Cloud Hypervisor passes through the
+# host CPU features via VHE (Virtualization Host Extensions), so you'll
+# see the real Graviton3 CPU info. The isolation is still VM-level
+# (separate kernel, memory, PID namespace) — just not visible via cpuinfo on ARM.
+kubectl exec -n openclaw-agents $SANDBOX_NAME -c openclaw -- cat /proc/cpuinfo | head -10
+```
+
+### 7.9 Compare isolation tiers
+
+Run this on all three tiers to see the difference:
+
+```bash
+GVISOR_POD=$(kubectl get sandboxclaim secure-agent-001 -n openclaw-agents -o jsonpath='{.status.sandbox.name}')
+
+echo "=== runc (standard) ==="
+kubectl exec -n openclaw-agents openclaw-agent -c openclaw -- uname -r
+kubectl exec -n openclaw-agents openclaw-agent -c openclaw -- nproc
+# Expected: 6.18.30-61.116.amzn2023.aarch64 (host kernel), 2 (cgroup limit)
+
+echo "=== gVisor ==="
+kubectl exec -n openclaw-agents $GVISOR_POD -c openclaw -- uname -r
+kubectl exec -n openclaw-agents $GVISOR_POD -c openclaw -- nproc
+# Expected: 4.19.0-gvisor (synthetic kernel), 1
+
+echo "=== Kata (VM) ==="
+kubectl exec -n openclaw-agents $SANDBOX_NAME -c openclaw -- uname -r
+kubectl exec -n openclaw-agents $SANDBOX_NAME -c openclaw -- nproc
+kubectl exec -n openclaw-agents $SANDBOX_NAME -c openclaw -- dmesg 2>&1 | head -3
+# Expected: 6.18.35 (guest kernel), 1, full Linux boot log
+```
+
+| | **runc** | **gVisor** | **Kata (VM)** |
+|---|---|---|---|
+| `uname -r` | `6.18.30-61.116.amzn2023` (host) | `4.19.0-gvisor` (synthetic) | `6.18.35` (guest VM kernel) |
+| `nproc` | 2 (cgroup limit) | 1 | 1 (allocated vCPU) |
+| `dmesg` | Host log (or denied) | gVisor Sentry log | Full Linux boot inside micro-VM |
+| Isolation | Linux namespaces | User-space kernel | Hardware VM boundary |
+
+---
+
+## Module 8: Restrict Egress with Network Policy
 
 Without an egress allowlist, a compromised agent can exfiltrate data or probe internal services. EKS supports native Kubernetes `NetworkPolicy` enforced by VPC CNI.
 
-### 7.1 Default deny all egress
+### 8.1 Default deny all egress
 
 ```yaml
 # manifests/deny-all-egress.yaml
@@ -980,7 +1349,7 @@ spec:
 kubectl apply -f manifests/deny-all-egress.yaml
 ```
 
-### 7.2 Allow only DNS and HTTPS egress
+### 8.2 Allow only DNS and HTTPS egress
 
 ```yaml
 # manifests/allow-agent-egress.yaml
@@ -1019,7 +1388,7 @@ spec:
 kubectl apply -f manifests/allow-agent-egress.yaml
 ```
 
-### 7.3 Verify egress enforcement
+### 8.3 Verify egress enforcement
 
 ```bash
 # Should succeed — HTTPS to Bedrock
@@ -1037,7 +1406,7 @@ kubectl exec -n openclaw-agents openclaw-agent -c openclaw -- \
 
 ---
 
-## Module 8: Cleanup
+## Module 9: Cleanup
 
 ```bash
 # Delete all sandbox resources
@@ -1053,10 +1422,10 @@ kubectl delete namespace openclaw-agents
 kubectl delete -f https://github.com/kubernetes-sigs/agent-sandbox/releases/download/${SANDBOX_VERSION}/extensions.yaml
 kubectl delete -f https://github.com/kubernetes-sigs/agent-sandbox/releases/download/${SANDBOX_VERSION}/manifest.yaml
 
-# Remove RuntimeClass and gVisor NodePool
-kubectl delete runtimeclass gvisor
-kubectl delete nodepool gvisor
-kubectl delete ec2nodeclass gvisor
+# Remove RuntimeClasses and isolation NodePools
+kubectl delete runtimeclass gvisor kata
+kubectl delete nodepool gvisor kata
+kubectl delete ec2nodeclass gvisor kata
 
 # Scale down Karpenter to avoid node replacement during destroy
 kubectl scale deployment karpenter -n kube-system --replicas=0
@@ -1098,5 +1467,7 @@ aws iam delete-policy --policy-arn arn:aws:iam::${ACCOUNT_ID}:policy/OpenClawBed
 - [OpenClaw Sandbox Example](https://github.com/kubernetes-sigs/agent-sandbox/tree/main/examples/openclaw-sandbox)
 - [Karpenter Documentation](https://karpenter.sh/docs/)
 - [gVisor on Kubernetes](https://gvisor.dev/docs/user_guide/quick_start/kubernetes/)
+- [Kata Containers Documentation](https://katacontainers.io/docs/)
+- [Kata with Cloud Hypervisor](https://github.com/kata-containers/kata-containers/blob/main/docs/hypervisors.md#cloud-hypervisor)
 - [Kubernetes Network Policies](https://kubernetes.io/docs/concepts/services-networking/network-policies/)
 - [EKS Pod Identity](https://docs.aws.amazon.com/eks/latest/userguide/pod-identities.html)

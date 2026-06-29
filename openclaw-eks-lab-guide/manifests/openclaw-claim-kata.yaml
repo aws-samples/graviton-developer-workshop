@@ -1,0 +1,8 @@
+apiVersion: extensions.agents.x-k8s.io/v1alpha1
+kind: SandboxClaim
+metadata:
+  name: vm-agent-001
+  namespace: openclaw-agents
+spec:
+  sandboxTemplateRef:
+    name: openclaw-kata

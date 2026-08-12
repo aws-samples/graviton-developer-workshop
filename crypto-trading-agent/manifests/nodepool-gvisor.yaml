@@ -1,0 +1,67 @@
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: gvisor
+spec:
+  template:
+    metadata:
+      labels:
+        runtime: gvisor
+    spec:
+      taints:
+        - key: runtime
+          value: gvisor
+          effect: NoSchedule
+      requirements:
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["arm64"]
+        - key: karpenter.k8s.aws/instance-category
+          operator: In
+          values: ["m", "c", "r"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: gvisor
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 30s
+---
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: gvisor
+spec:
+  role: "KarpenterNodeRole-${CLUSTER_NAME}"
+  amiSelectorTerms:
+    - alias: al2023@latest
+  subnetSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: "${CLUSTER_NAME}"
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: "${CLUSTER_NAME}"
+  userData: |
+    #!/bin/bash
+    set -e
+
+    # Install gVisor (runsc) for arm64
+    ARCH=arm64
+    URL="https://storage.googleapis.com/gvisor/releases/release/latest/${ARCH}"
+
+    curl -fsSL "${URL}/runsc" -o /usr/local/bin/runsc
+    curl -fsSL "${URL}/containerd-shim-runsc-v1" -o /usr/local/bin/containerd-shim-runsc-v1
+    chmod +x /usr/local/bin/runsc /usr/local/bin/containerd-shim-runsc-v1
+
+    # Configure containerd to use runsc runtime
+    cat >> /etc/containerd/config.toml <<EOF
+
+    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runsc]
+      runtime_type = "io.containerd.runsc.v1"
+    EOF
+
+    # Restart containerd to pick up the new runtime
+    systemctl restart containerd

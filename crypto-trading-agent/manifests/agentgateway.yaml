@@ -1,0 +1,118 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gateway
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: agentgateway-sa
+  namespace: gateway
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agentgateway-config
+  namespace: gateway
+data:
+  config.yaml: |
+    config:
+      logging:
+        database:
+          url: "sqlite:///tmp/agentgateway-logs.db"
+    llm:
+      port: 8080
+      models:
+        - name: "*"
+          provider: bedrock
+          params:
+            awsRegion: ap-southeast-1
+    mcp:
+      port: 8081
+      policies:
+        mcpAuthentication:
+          mode: optional
+          issuer: https://cognito-idp.${AWS_REGION}.amazonaws.com/${USER_POOL_ID}
+          audiences:
+            - ${APP_CLIENT_ID}
+          jwks:
+            url: https://cognito-idp.${AWS_REGION}.amazonaws.com/${USER_POOL_ID}/.well-known/jwks.json
+          resourceMetadata:
+            resource: http://agentgateway.gateway.svc.cluster.local:8081/mcp
+            scopesSupported:
+              - read:all
+            bearerMethodsSupported:
+              - header
+        mcpAuthorization:
+          rules:
+            # Traders get full access to all tools
+            - '"traders" in jwt["cognito:groups"]'
+            # Viewers can only access read-only tools
+            - '"viewers" in jwt["cognito:groups"] && mcp.tool.name in ["get_market_data", "get_positions", "get_order_history", "get_portfolio_summary"]'
+      targets:
+        - name: trading-mcp-server
+          mcp:
+            host: http://trading-mcp-server.trading.svc.cluster.local:8000/mcp
+        - name: code-executor-mcp
+          mcp:
+            host: http://code-executor-mcp.trading.svc.cluster.local:8000/mcp
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentgateway
+  namespace: gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agentgateway
+  template:
+    metadata:
+      labels:
+        app: agentgateway
+    spec:
+      serviceAccountName: agentgateway-sa
+      nodeSelector:
+        kubernetes.io/arch: arm64
+      containers:
+        - name: agentgateway
+          image: cr.agentgateway.dev/agentgateway:v1.4.1
+          args: ["--file", "/etc/agentgateway/config.yaml"]
+          ports:
+            - containerPort: 8080
+              name: llm
+            - containerPort: 8081
+              name: mcp
+          volumeMounts:
+            - name: config
+              mountPath: /etc/agentgateway
+              readOnly: true
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+      volumes:
+        - name: config
+          configMap:
+            name: agentgateway-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agentgateway
+  namespace: gateway
+spec:
+  selector:
+    app: agentgateway
+  ports:
+    - name: llm
+      port: 8080
+      targetPort: 8080
+    - name: mcp
+      port: 8081
+      targetPort: 8081
+  type: ClusterIP

@@ -1,5 +1,6 @@
 # Local .terraform directories
 **/.terraform/*
+**/openclaw-ec2-lab-guide/*
 
 # .tfstate files
 *.tfstate

@@ -1,0 +1,5 @@
+strands-agents[mcp,otel]==1.50.2
+openai==2.46.0
+streamlit==1.41.1
+boto3==1.35.86
+requests==2.32.3

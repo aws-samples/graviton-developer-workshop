@@ -1,0 +1,9 @@
+apiVersion: extensions.agents.x-k8s.io/v1alpha1
+kind: SandboxWarmPool
+metadata:
+  name: trading-python-pool
+  namespace: trading
+spec:
+  replicas: 2
+  sandboxTemplateRef:
+    name: trading-python

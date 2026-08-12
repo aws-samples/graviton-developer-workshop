@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "name": "Launch trn2 into Capacity Block",
+  "description": "Checks if the Capacity Block cr-0beadcf88eae42458 is active and launches the trn2.3xlarge instance in ap-southeast-4c. Trigger this after 10:36 AM UTC+8 when the reservation activates.",
+  "version": "1",
+  "when": {
+    "type": "userTriggered"
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "Check if capacity reservation cr-0beadcf88eae42458 in ap-southeast-4 is active by running: aws ec2 describe-capacity-reservations --capacity-reservation-ids cr-0beadcf88eae42458 --region ap-southeast-4 --query 'CapacityReservations[0].State' --output text\n\nIf the state is \"active\", launch the instance with:\naws ec2 run-instances --image-id ami-0e9c7de5c2b52f5c3 --instance-type trn2.3xlarge --key-name mel --security-group-ids sg-0c559d21dd8e81dd5 --subnet-id subnet-01f03655967f9d47f --capacity-reservation-specification 'CapacityReservationTarget={CapacityReservationId=cr-0beadcf88eae42458}' --placement '{\"AvailabilityZone\":\"ap-southeast-4c\"}' --block-device-mappings '[{\"DeviceName\":\"/dev/sda1\",\"Ebs\":{\"VolumeSize\":200,\"VolumeType\":\"gp3\"}}]' --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=llm-benchmark-neuron-cbr}]' --region ap-southeast-4\n\nThen get the public IP and provide the SSH command: ssh -i mel.pem ubuntu@PUBLIC_IP\n\nIf the state is not \"active\", tell the user the reservation is not ready yet and to try again shortly."
+  }
+}

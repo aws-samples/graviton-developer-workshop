@@ -1,0 +1,169 @@
+# SPDX-License-Identifier: MIT-0
+#
+# NVIDIA Dynamo v1.4.0 — Disaggregated vLLM for Qwen3-8B on 2x g6e.12xlarge (cross-node EFA)
+#
+# Architecture (two nodes):
+#   Frontend (CPU) → Smart Router → Prefill Worker (node A, 1 GPU)
+#                                      --NIXL/LIBFABRIC KV over EFA (GPUDirect RDMA?)-->
+#                                    Decode Worker (node B, 1 GPU)
+#
+# Experiment: g6e.8xlarge (single-GPU) could NOT do GPUDirect RDMA over EFA
+# (measured ~197 MB/s host-staged). g6e.12xlarge is a MULTI-GPU instance (4x L40S,
+# 45 GB each); AWS scopes GDR-over-EFA to multi-GPU instances, so this tests whether
+# the multi-GPU g6e enables the fast EFA RDMA path cross-node.
+#
+# Placement:
+#   - podAntiAffinity (hostname)  -> prefill and decode on DIFFERENT nodes (forces 2 nodes)
+#   - podAffinity (zone)          -> decode follows prefill's AZ (EFA cannot cross AZ)
+#
+# Verify after deploy: decode KV Transfer metrics throughput. GB/s => EFA RDMA works
+# on multi-GPU g7e; still ~hundreds of MB/s => only p5-class does real EFA RDMA.
+
+apiVersion: nvidia.com/v1alpha1
+kind: DynamoGraphDeployment
+metadata:
+  name: qwen3-8b-disagg
+  namespace: dynamo-system
+spec:
+  backendFramework: vllm
+  services:
+    # ------------------------------------------------------------------
+    # Frontend: OpenAI-compatible HTTP API + Dynamo Smart Router (CPU only)
+    # ------------------------------------------------------------------
+    Frontend:
+      componentType: frontend
+      replicas: 1
+      extraPodSpec:
+        mainContainer:
+          image: nvcr.io/nvidia/ai-dynamo/vllm-runtime:1.4.0-efa
+          imagePullPolicy: IfNotPresent
+
+    # ------------------------------------------------------------------
+    # Prefill Worker — node A. Produces KV cache, pushes to decode over EFA.
+    # ------------------------------------------------------------------
+    VLLMPrefillWorker:
+      envFromSecret: hf-token-secret
+      componentType: worker
+      subComponentType: prefill
+      replicas: 1
+      resources:
+        requests:
+          gpu: "1"
+          custom:
+            vpc.amazonaws.com/efa: "1"
+        limits:
+          gpu: "1"
+          custom:
+            vpc.amazonaws.com/efa: "1"
+      sharedMemory:
+        size: 16Gi
+      extraPodSpec:
+        nodeSelector:
+          karpenter.sh/nodepool: gpu
+        affinity:
+          # Prefill is placed FIRST and freely — Karpenter picks any AZ that has
+          # g6e.12xlarge capacity. Decode then follows prefill's AZ (see below).
+          podAntiAffinity:
+            # Force onto a DIFFERENT node than the decode worker.
+            requiredDuringSchedulingIgnoredDuringExecution:
+              - topologyKey: "kubernetes.io/hostname"
+                labelSelector:
+                  matchExpressions:
+                    - key: nvidia.com/dynamo-component-type
+                      operator: In
+                      values: ["decode"]
+        mainContainer:
+          image: nvcr.io/nvidia/ai-dynamo/vllm-runtime:1.4.0-efa
+          imagePullPolicy: IfNotPresent
+          command: ["python3", "-m", "dynamo.vllm"]
+          args:
+            - --model
+            - Qwen/Qwen3-8B
+            - --max-model-len
+            - "8192"
+            - --gpu-memory-utilization
+            - "0.90"
+            - --disaggregation-mode
+            - prefill
+            - --kv-transfer-config
+            - '{"kv_connector":"NixlConnector","kv_role":"kv_both","kv_connector_extra_config":{"backends":["LIBFABRIC"]}}'
+          securityContext:
+            privileged: true          # REQUIRED: NIXL registers CUDA VRAM via fi_mr_reg
+            capabilities:
+              add: ["IPC_LOCK"]
+          env:
+            - { name: FI_PROVIDER, value: "efa" }
+            - { name: FI_EFA_USE_DEVICE_RDMA, value: "1" }
+            - { name: FI_EFA_ENABLE_SHM_TRANSFER, value: "0" }
+            - { name: FI_EFA_ENABLE_SHM, value: "0" }
+            - name: LD_LIBRARY_PATH
+              value: "/opt/amazon/efa/lib:/opt/amazon/efa/lib64:/opt/aws-ofi-nccl/lib:/opt/dynamo/nixl:/opt/dynamo/nixl/plugins:/usr/local/nvidia/lib64:/usr/local/cuda/lib64:/usr/local/nvidia/lib"
+
+    # ------------------------------------------------------------------
+    # Decode Worker — node B. Receives KV over EFA, streams tokens.
+    # ------------------------------------------------------------------
+    VLLMDecodeWorker:
+      envFromSecret: hf-token-secret
+      componentType: worker
+      subComponentType: decode
+      replicas: 1
+      resources:
+        requests:
+          gpu: "1"
+          custom:
+            vpc.amazonaws.com/efa: "1"
+        limits:
+          gpu: "1"
+          custom:
+            vpc.amazonaws.com/efa: "1"
+      sharedMemory:
+        size: 16Gi
+      extraPodSpec:
+        nodeSelector:
+          karpenter.sh/nodepool: gpu
+        affinity:
+          podAffinity:
+            # Same AZ as the PREFILL worker (EFA cannot cross AZ). Following
+            # prefill (not the frontend) lets Karpenter choose an AZ with capacity.
+            requiredDuringSchedulingIgnoredDuringExecution:
+              - topologyKey: "topology.kubernetes.io/zone"
+                labelSelector:
+                  matchExpressions:
+                    - key: nvidia.com/dynamo-component-type
+                      operator: In
+                      values: ["prefill"]
+          podAntiAffinity:
+            # Force onto a DIFFERENT node than the prefill worker.
+            requiredDuringSchedulingIgnoredDuringExecution:
+              - topologyKey: "kubernetes.io/hostname"
+                labelSelector:
+                  matchExpressions:
+                    - key: nvidia.com/dynamo-component-type
+                      operator: In
+                      values: ["prefill"]
+        mainContainer:
+          image: nvcr.io/nvidia/ai-dynamo/vllm-runtime:1.4.0-efa
+          imagePullPolicy: IfNotPresent
+          command: ["python3", "-m", "dynamo.vllm"]
+          args:
+            - --model
+            - Qwen/Qwen3-8B
+            - --max-model-len
+            - "8192"
+            - --gpu-memory-utilization
+            - "0.90"
+            - --disaggregation-mode
+            - decode
+            - --kv-transfer-config
+            - '{"kv_connector":"NixlConnector","kv_role":"kv_both","kv_connector_extra_config":{"backends":["LIBFABRIC"]}}'
+          securityContext:
+            privileged: true
+            capabilities:
+              add: ["IPC_LOCK"]
+          env:
+            - { name: FI_PROVIDER, value: "efa" }
+            - { name: FI_EFA_USE_DEVICE_RDMA, value: "1" }
+            - { name: FI_EFA_ENABLE_SHM_TRANSFER, value: "0" }
+            - { name: FI_EFA_ENABLE_SHM, value: "0" }
+            - name: LD_LIBRARY_PATH
+              value: "/opt/amazon/efa/lib:/opt/amazon/efa/lib64:/opt/aws-ofi-nccl/lib:/opt/dynamo/nixl:/opt/dynamo/nixl/plugins:/usr/local/nvidia/lib64:/usr/local/cuda/lib64:/usr/local/nvidia/lib"

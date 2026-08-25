@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: MIT-0
+#
+# EKS Auto Mode GPU NodePool — targets g7e family (EFA-capable) for this lab.
+# EKS Auto Mode uses Karpenter under the hood but with eks.amazonaws.com NodeClasses.
+# EKS Auto Mode includes the EFA device plugin, so vpc.amazonaws.com/efa is available.
+
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: gpu
+spec:
+  template:
+    spec:
+      nodeClassRef:
+        group: eks.amazonaws.com
+        kind: NodeClass
+        name: default
+      requirements:
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values: ["g6e.12xlarge"]                   # 4x L40S/node, multi-GPU, EFA-capable
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+      taints:
+        - key: nvidia.com/gpu
+          value: "true"
+          effect: NoSchedule
+  limits:
+    cpu: 400
+    memory: 2000Gi
+    "nvidia.com/gpu": 16    # 2x g6e.12xlarge = 8 GPUs; headroom for scaling
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 2m

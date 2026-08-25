@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: MIT-0
+#
+# Default StorageClass for EKS Auto Mode.
+# Required so the Dynamo Helm chart's NATS StatefulSet PVC can bind.
+
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: auto-ebs-sc
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+allowedTopologies:
+  - matchLabelExpressions:
+      - key: eks.amazonaws.com/compute-type
+        values:
+          - auto
+provisioner: ebs.csi.eks.amazonaws.com
+volumeBindingMode: WaitForFirstConsumer
+parameters:
+  type: gp3
+  encrypted: "true"
